@@ -12,14 +12,14 @@ Here we report a list of things to do by argument:
 ## Ground Detection
 Approaches to test:
 
-1. \lambda-flat-zones
+1. $\lambda$-flat-zones
 2. U-Net on spherical images or BEV
 3. RANSAC
 
 
 #### \lambda-flat zones
 * [ ] 3D graph: Use the normals and z values
-    *[ ] Find a merge strategy once segmented the graph 
+   * [ ] Find a merge strategy once segmented the graph 
 
 * [ ] Using the code from Bea
 
