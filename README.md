@@ -12,7 +12,7 @@ Here we report a list of things to do by argument:
 ## Ground Detection
 Approaches to test:
 
-1. $\lambda$-flat-zones
+1. &lambda;-flat-zones
 2. U-Net on spherical images or BEV
 3. RANSAC
 
