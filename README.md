@@ -17,7 +17,7 @@ Approaches to test:
 3. RANSAC
 
 
-#### \lambda-flat zones
+#### &lambda;-flat zones
 * [ ] 3D graph: Use the normals and z values
    * [ ] Find a merge strategy once segmented the graph 
 
