@@ -1,5 +1,71 @@
+import os
+import yaml
 import numpy as np
+import pandas as pd
+from pyntcloud import PyntCloud
 from skimage.morphology import opening, rectangle
+
+class SemanticKittiConfig:
+    """
+    Class that load the semantic kitti config file and helps to handle class ids
+    """
+    def __init__(self, config_file):
+        """
+        Parameters
+        ----------
+        config_file: str to config file
+        """
+        self.config_file = config_file
+        self.config = self.load_semantic_kitti_config(config_file)
+        labels2id, id2label = self._remap_classes()
+        self.labels2id = labels2id
+        self.id2label = id2label
+        self.label2color = self._color_map()
+
+
+    @staticmethod
+    def load_semantic_kitti_config(filename=""):
+        """
+        Function that load configuration file of semantic kitti dataset
+        Parameters
+        ----------
+        filename: str
+            file to load
+        Returns
+        -------
+        config: dict
+        """
+        if len(filename) == 0:
+            local_path = os.path.dirname(os.path.abspath(__file__))
+            filename = os.path.join(local_path, '..', 'semantic-kitti-api', 'config', 'semantic-kitti.yaml')
+
+        with open(filename) as f:
+            config = yaml.safe_load(f)
+
+        return config
+
+    def _color_map(self):
+        max_id = max(self.config['color_map'])
+        label2colors = np.zeros((max_id + 1, 3), dtype=np.uint8)
+        for k, v in self.config['color_map'].items():
+            label2colors[k] = v
+
+        return label2colors
+
+    def _remap_classes(self):
+        learning_map = self.config['learning_map']
+        learning_map_inv = self.config['learning_map_inv']
+
+        remaps = np.zeros(max(learning_map.keys()) + 1, dtype=int)
+        for k, v in learning_map.items():
+            remaps[k] = v
+
+        inv_remaps = np.zeros(max(learning_map_inv.keys()) + 1, dtype=int)
+        for k, v in learning_map_inv.items():
+            inv_remaps[k] = v
+
+        return remaps, inv_remaps
+
 
 
 def retrieve_layers(points, max_layers=64):
@@ -71,3 +137,102 @@ def add_layers(points):
     new_points = np.c_[points, layers]
 
     return new_points
+
+
+def load_label_file(bin_path, instances=False):
+    """
+    Utils function that read semantic-kitti labels
+    TODO: create a specific library to read semantic-kitti labels and move this function there
+    """
+    labels = np.fromfile(bin_path, dtype=np.uint32).reshape(-1)
+
+    seg_labels = labels & 0xFFFF
+
+    if instances:
+        inst = labels >> 16
+        return seg_labels, inst
+
+    return seg_labels
+
+
+def load_bin_file(bin_path, n_cols=4):
+    """
+    Load a binary file and convert it into a numpy array.
+
+    Parameters
+    ----------
+    bin_path: str
+        path to bin file
+
+    n_cols: int
+        number of columns/features contained in the pc
+
+    Returns
+    -------
+    point_cloud: ndarray
+        loaded point cloud
+    """
+    return np.fromfile(bin_path, dtype=np.float32).reshape(-1, n_cols)
+
+
+def load_kitti_pc(filename, add_label=False, instances=False):
+    """
+    Function that load a point cloud as numpy array
+    Parameters
+    ----------
+
+    filename: str
+        path to filename
+
+    add_label: bool
+        if true it loads labels coming from semantic-kitti dataset
+
+    instances: bool
+        if true it loads instance labels coming from semantic-kitti datased
+    Returns
+    -------
+    points: ndarray
+        loaded point cloud
+    """
+    points = load_bin_file(filename)
+
+    if add_label:
+        labels = load_label_file(filename.replace('velodyne', 'labels').replace('bin', 'label'), instances=instances)
+        if instances:
+            points = np.c_[points, labels[0], labels[1]]
+        else:
+            points = np.c_[points, labels]
+
+    return points
+
+
+def load_pyntcloud(filename, add_label=False, instances=False):
+    """
+    Parameters
+    ----------
+    filename: str
+        path to pointcloud to read
+
+    add_label: bool
+        if True it adds also label to point cloud
+
+    instances: bool
+        if True it add also instances labels to point cloud
+
+    Returns
+    -------
+    cloud: PyntCloud
+        output pointcloud
+    """
+    points = load_bin_file(filename)
+    cloud = PyntCloud(pd.DataFrame(points, columns=['x', 'y','z', 'i']))
+    if add_label:
+        labels = load_label_file(filename.replace('velodyne', 'labels').replace('bin', 'label'), instances=instances)
+        if instances:
+            cloud.points['labels'] = labels[0]
+            cloud.points['instances'] = labels[1]
+        else:
+            cloud.points['labels'] = labels
+
+    return cloud
+
