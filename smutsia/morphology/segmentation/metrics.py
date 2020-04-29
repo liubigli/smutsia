@@ -1,13 +1,54 @@
 import numpy as np
 
 def _logistic_function(x, x0, L, k):
+    """
+    General logistic function. It returns
+        y = L / (1 + np.exp(-k * (x - x0)))
+
+    Parameters
+    ----------
+    x: ndarray
+        input values
+    x0: float
+        shift value
+    L: float
+        Max value of the logistic function
+    k: float
+        power to the exponential function
+
+    Returns:
+    y: ndarray
+    """
     return L / (1 + np.exp(-k * (x - x0)))
 
 def z_nz_dist(xyz, normals, src, dst):
+    """
+    Custom metric used for Ground segmentation. Basically the weight between two points is the difference of the
+    ratios elevation / vertical orientation.
+
+    Parameters
+    ----------
+    xyz: ndarray
+        input points
+
+    normals: ndarray
+        input normals
+
+    src: ndarray
+        array of source ids
+
+    dst: ndarray
+        array of destination ids
+
+    Returns
+    -------
+    weights: ndarray
+        array of weights
+    """
     z = xyz[:, 2] - xyz[:, 2].min()
     nz = np.abs(normals[:,2])
 
     # apply logistic function to normals
-    log_nz = _logistic_function(nz, x0=1/2, L=1, k=2)
+    log_nz = _logistic_function(nz, x0=0.7, L=1, k=16)
 
     return np.abs((z[src] / log_nz[src]) - (z[dst] / log_nz[dst]))
