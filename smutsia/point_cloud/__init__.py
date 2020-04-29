@@ -3,7 +3,10 @@ from __future__ import print_function
 from __future__ import division
 
 import numpy as np
-from skimage.morphology import rectangle, opening
+
+__all__ = [
+    'filter_points'
+]
 
 def filter_points(points,
                   side_range=None,
