@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
-
+import re
 
 class AbstractProjector(ABC):
     """
@@ -152,6 +152,16 @@ class SphericalProjector(AbstractProjector):
 
         return height, width
 
+class LayerProjector(AbstractProjector):
+    def __init__(self):
+        super(LayerProjector, self).__init__()
+
+    def project_point(self, points):
+        pass
+
+    def get_image_size(self, **kwargs):
+        pass
+
 
 class Projection:
     def __init__(self, proj_type, res_x=0.0, res_y=0.0, res_pitch=0.0, res_yaw=0.0, fov_pitch = None, fov_yaw = None):
@@ -160,7 +170,7 @@ class Projection:
 
         Parameters
         ----------
-        proj_type: str
+        proj_type: optional {'linear', 'spherical', 'layers'}
 
         res_x: float
             resolution along the rows of the image
@@ -199,8 +209,12 @@ class Projection:
                                                               res_pitch=res_pitch,
                                                               fov_yaw=fov_yaw,
                                                               fov_pitch=fov_pitch)
+        elif proj_type == 'layers':
+            pass
+
         else:
-            raise ValueError("proj_type value can be only 'linear' or 'spherical',  you passed {}".format(proj_type))
+            raise ValueError("proj_type value can be only 'linear', 'spherical' or 'layers',  "
+                             "you passed {}".format(proj_type))
 
 
     def __initialize_linear_proj(self, res_x, res_y):
@@ -295,6 +309,27 @@ class Projection:
 
             elif func == 'sum':
                 binned_values[:, i] = np.bincount(lidx, values[:, i], minlength=nr * nc)
+
+            elif 'argmin' in func:
+                arg_i = int(re.split(r"\D+", func)[1])
+                argvalues = np.zeros_like(m_idx)
+                # we need to reorder the values first
+                out_val = values[sidx, i]
+                arg_val = values[sidx, arg_i]
+                for n, (start, end) in enumerate(zip(m_idx[:-1], m_idx[1:])):
+                    argvalues[n] = out_val[start + arg_val[start:end].argmin()]
+                # assign argvalues to binned values
+                binned_values[unq_ids, i] = argvalues
+
+            elif 'argmax' in func:
+                arg_i = int(re.split(r"\D+", func)[1])
+                argvalues = np.zeros_like(m_idx)
+                # we need to reorder the values first
+                out_val = values[sidx, i]
+                arg_val = values[sidx, arg_i]
+                for n, (start, end) in enumerate(zip(m_idx[:-1], m_idx[1:])):
+                    argvalues[n] = out_val[start + arg_val[start:end].argmax()]
+                binned_values[unq_ids, i] = argvalues
 
             else:  # otherwise we compute mean values
                 binned_values[:, i] = np.bincount(lidx, values[:, i], minlength=nr * nc)
