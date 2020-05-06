@@ -18,9 +18,10 @@ class SemanticKittiConfig:
         self.config_file = config_file
         self.config = self.load_semantic_kitti_config(config_file)
         labels2id, id2label = self._remap_classes()
-        self.labels2id = labels2id
-        self.id2label = id2label
+        self.labels2id = labels2id  # hashmap used to generate labels for semantic-segmentation in DL
+        self.id2label = id2label #  labels2id inverse hashmap
         self.label2color = self._color_map()
+        self.labels2ground = self._label_to_ground_remap()
 
 
     @staticmethod
@@ -66,6 +67,12 @@ class SemanticKittiConfig:
 
         return remaps, inv_remaps
 
+    def _label_to_ground_remap(self):
+        ground_items = np.array([40, 44, 48, 49, 60, 72])
+        label_keys = list(self.config['learning_map'].keys())
+        labels2ground = np.zeros(max(label_keys) + 1, dtype=np.int)
+        labels2ground[ground_items] = 1
+        return  labels2ground
 
 
 def retrieve_layers(points, max_layers=64):
@@ -235,4 +242,5 @@ def load_pyntcloud(filename, add_label=False, instances=False):
             cloud.points['labels'] = labels
 
     return cloud
+
 
