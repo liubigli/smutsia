@@ -6,24 +6,51 @@ from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.sparse import find
 
-def plot_cloud(xyz, scalars=None, color=None, cmap=None, point_size=1.0, graph=None, rgb=False, interact=False):
+
+def plot_cloud(xyz,
+               scalars=None,
+               color=None,
+               cmap=None,
+               point_size=1.0,
+               graph=None,
+               rgb=False,
+               interact=False,
+               notebook=True):
     """
     Helper functions
     Parameters
     ----------
     """
-    plotter = pv.BackgroundPlotter()
+    if notebook:
+        plotter = pv.BackgroundPlotter()
+    else:
+        plotter = pv.Plotter()
+
     poly = pv.PolyData(xyz)
     plotter.add_mesh(poly, color=color, scalars=scalars, cmap=cmap, rgb=rgb, point_size=point_size)
     plotter.add_scalar_bar()
     if graph is not None:
         src_g, dst_g, _ = find(graph)
-        lines = np.zeros((2*len(src_g), 3))
+        lines = np.zeros((2 * len(src_g), 3))
         for n, (s, d) in enumerate(zip(src_g, dst_g)):
             lines[2 * n, :] = xyz[s]
             lines[2 * n + 1, :] = xyz[d]
+        actor = []
+        # actor.append(plotter.add_lines(lines, width=1))
+        def clear_lines(value):
+            if not value:
+                plotter.remove_actor(actor[-1])
+                actor.pop(0)
+            else:
+                actor.append(plotter.add_lines(lines, width=1))
+        plotter.add_checkbox_button_widget(clear_lines, value=False,
+                                           position=(10.0, 10.0),
+                                           size=10,
+                                           border_size=2,
+                                           color_on='blue',
+                                           color_off='grey',
+                                           background_color='white')
 
-        plotter.add_lines(lines, width=1)
 
     # auxiliary function to analyse the picked cells
     def analyse_picked_points(picked_cells):
@@ -39,6 +66,9 @@ def plot_cloud(xyz, scalars=None, color=None, cmap=None, point_size=1.0, graph=N
 
     if interact:
         plotter.enable_cell_picking(through=False, callback=analyse_picked_points)
+
+    if not notebook:
+        plotter.show()
 
     return plotter
 
@@ -70,10 +100,10 @@ def color_bool_labeling(y_true, y_pred, pos_label=1):
     # false negatives
     fn = np.logical_and(y_true == pos_label, y_pred == 0)
 
-    colors[tp] = [23, 156, 82] # green
-    colors[tn] = [82, 65, 76] # dark liver
-    colors[fp] = [255, 62, 48] # red
-    colors[fn] = [23, 107, 239] # blue
+    colors[tp] = [23, 156, 82]  # green
+    colors[tn] = [82, 65, 76]  # dark liver
+    colors[fp] = [255, 62, 48]  # red
+    colors[fn] = [23, 107, 239]  # blue
 
     return colors
 
@@ -82,7 +112,7 @@ def plot_confusion_matrix(cm, classes,
                           normalize=False,
                           title='Confusion matrix',
                           cmap=plt.cm.Blues,
-                          figsize=(8,8),
+                          figsize=(8, 8),
                           savefig=""):
     """
     This function prints and plots the confusion matrix.
