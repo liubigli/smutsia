@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import re
+from smutsia.utils.semantickitti import retrieve_layers
+
 
 class AbstractProjector(ABC):
     """
@@ -48,7 +50,7 @@ class LinearProjector(AbstractProjector):
         i_img_mapping = np.floor(x * self.res_x).astype(int)
         j_img_mapping = np.floor(y * self.res_y).astype(int)
 
-        lidx = ((i_img_mapping) % height) * width + j_img_mapping
+        lidx = (i_img_mapping % height) * width + j_img_mapping
 
         return lidx, i_img_mapping, j_img_mapping
 
@@ -62,7 +64,7 @@ class LinearProjector(AbstractProjector):
         max_val = points.max(0)
         min_val = points.min(0)
         height = np.ceil((max_val[0] - min_val[0]) * self.res_x).astype(int)
-        width  = np.ceil((max_val[1] - min_val[1]) * self.res_y).astype(int)
+        width = np.ceil((max_val[1] - min_val[1]) * self.res_y).astype(int)
 
         return height, width
 
@@ -152,19 +154,52 @@ class SphericalProjector(AbstractProjector):
 
         return height, width
 
+
 class LayerProjector(AbstractProjector):
-    def __init__(self):
-        super(LayerProjector, self).__init__()
+    def __init__(self, height=64, width=1024):
+        self.proj_H = height
+        self.proj_W = width
+        super(AbstractProjector, self).__init__()
 
     def project_point(self, points):
-        pass
+        dims = points.shape[1]
+        if dims <= 3:
+            layers = retrieve_layers(points, max_layers=self.proj_H)
+        else:
+            layers = points[:, -1]
+        # x coordinates
+        x = points[:, 0]
+        # y coordinates
+        y = points[:, 1]
+
+        # we need to invert orientation of y coordinates
+        yaw = np.arctan2(-y, x)
+        i_img_mapping = layers.astype(np.int)
+        j_img_mapping = 0.5 * (yaw / np.pi + 1.0)  # in [0.0, 1.0]
+        j_img_mapping *= self.proj_W  # in [0.0, W]
+
+        j_img_mapping = np.floor(j_img_mapping)
+        j_img_mapping = np.minimum(self.proj_W - 1, j_img_mapping)
+        j_img_mapping = np.maximum(0, j_img_mapping).astype(np.int32)  # in [0,W-1]
+
+        lidx = (i_img_mapping * self.proj_W) + j_img_mapping
+
+        return lidx, i_img_mapping, j_img_mapping
 
     def get_image_size(self, **kwargs):
-        pass
+        return self.proj_H, self.proj_W
 
 
 class Projection:
-    def __init__(self, proj_type, res_x=0.0, res_y=0.0, res_pitch=0.0, res_yaw=0.0, fov_pitch = None, fov_yaw = None):
+    def __init__(self,
+                 proj_type,
+                 res_x=0.0,
+                 res_y=0.0,
+                 res_pitch=0.0,
+                 res_yaw=0.0,
+                 fov_pitch=None,
+                 fov_yaw=None,
+                 nb_layers=None):
         """
         Projection class
 
@@ -189,12 +224,15 @@ class Projection:
         fov_yaw: list
             field of view interval containing min/max yaw angles
 
+        nb_layers: int
+            number of layers in the scanner (to use in the layer projection)
         """
-
+        # TODO: refactor parameters names
         self.res_x = res_x
         self.res_y = res_y
         self.res_pitch = res_pitch
         self.res_yaw = res_yaw
+        self.nb_layers = nb_layers
 
         if fov_yaw is None:
             fov_yaw = [0.0, 2 * np.pi]
@@ -210,18 +248,20 @@ class Projection:
                                                               fov_yaw=fov_yaw,
                                                               fov_pitch=fov_pitch)
         elif proj_type == 'layers':
-            pass
+            self.projector = self.__initialize_layer_proj(res_yaw=res_yaw, nb_layers=nb_layers)
 
         else:
             raise ValueError("proj_type value can be only 'linear', 'spherical' or 'layers',  "
                              "you passed {}".format(proj_type))
-
 
     def __initialize_linear_proj(self, res_x, res_y):
         return LinearProjector(res_x=res_x, res_y=res_y)
 
     def __initialize_spherical_proj(self, res_yaw, res_pitch, fov_yaw, fov_pitch):
         return SphericalProjector(res_yaw=res_yaw, res_pitch=res_pitch, fov_yaw=fov_yaw, fov_pitch=fov_pitch)
+
+    def __initialize_layer_proj(self, res_yaw, nb_layers):
+        return LayerProjector(height=nb_layers, width=res_yaw)
 
     def project_points_values(self, points, values, aggregate_func='max', rot=np.eye(3), b=0.0):
         """
