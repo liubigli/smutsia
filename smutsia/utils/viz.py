@@ -14,12 +14,48 @@ def plot_cloud(xyz,
                point_size=1.0,
                graph=None,
                rgb=False,
+               add_scalarbar=True,
                interact=False,
                notebook=True):
     """
     Helper functions
+
     Parameters
     ----------
+    xyz: ndarray
+        input point cloud
+
+    scalars: ndarray
+        array to use for coloring point cloud
+
+    color:
+        color to assign to all points
+
+    cmap: matplotlib colormap
+        matplotlib colormap to use
+
+    point_size: float
+        size of points in the plot
+
+    graph: csr_matrix
+        adjacent matrix representing a graph. The matrix columns and rows must the same of the number of points
+
+    rgb: bool
+        If True, it consider scalar values as RGB colors
+
+    add_scalarbar: bool
+        if True it adds a scalarbar in the plot
+
+    interact: bool
+        if true is possible to pick and select point during the plot
+
+    notebook: bool
+        set to True if plotting inside a jupyter notebook
+
+    Returns
+    -------
+    plotter: pv.Plotter
+        return plotter
     """
     if notebook:
         plotter = pv.BackgroundPlotter()
@@ -28,7 +64,10 @@ def plot_cloud(xyz,
 
     poly = pv.PolyData(xyz)
     plotter.add_mesh(poly, color=color, scalars=scalars, cmap=cmap, rgb=rgb, point_size=point_size)
-    plotter.add_scalar_bar()
+
+    if add_scalarbar:
+        plotter.add_scalar_bar()
+
     if graph is not None:
         src_g, dst_g, _ = find(graph)
         lines = np.zeros((2 * len(src_g), 3))
@@ -36,7 +75,7 @@ def plot_cloud(xyz,
             lines[2 * n, :] = xyz[s]
             lines[2 * n + 1, :] = xyz[d]
         actor = []
-        # actor.append(plotter.add_lines(lines, width=1))
+
         def clear_lines(value):
             if not value:
                 plotter.remove_actor(actor[-1])
@@ -51,9 +90,8 @@ def plot_cloud(xyz,
                                            color_off='grey',
                                            background_color='white')
 
-
-    # auxiliary function to analyse the picked cells
     def analyse_picked_points(picked_cells):
+        # auxiliary function to analyse the picked cells
         ids = picked_cells.point_arrays['vtkOriginalPointIds']
         print("Selected Points: ")
         print(ids)
