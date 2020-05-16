@@ -1,0 +1,15 @@
+name: "hybrid"
+lambda: 0.20
+knn_graph:
+  k: 10
+spherical_graph:
+  nb_layers: 64
+  res_yaw: 2048
+normals:
+  method: 'pca'
+  k: 30
+merge:
+  min_size: 40
+  ransac_max_dist: 0.15
+  ransac_it: 100
+  inter_size: 0.5
