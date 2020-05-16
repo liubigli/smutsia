@@ -54,11 +54,11 @@ def shuffle_labels(labels):
         vector of shuffled labels
 
     """
-    unique = np.unique(labels)
+    shuffles = np.arange(labels.max() + 1)
     np.random.seed(1)
-    np.random.shuffle(unique)
+    np.random.shuffle(shuffles)
 
-    return unique[labels]
+    return shuffles[labels]
 
 
 # auxiliary function that reconstruct the ith mst from the sequences T,E
