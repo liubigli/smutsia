@@ -2,6 +2,7 @@ import numpy as np
 from pyntcloud import PyntCloud
 from skimage.morphology import closing, square
 
+
 # utils functions returning cos and sinus for yaw and pitch angle
 def _cos_pitch_grid(shape, pitch):
     """
@@ -89,6 +90,47 @@ def _cos_yaw_grid(shape, yaw):
     """
     yaw_grid = np.repeat(yaw, shape[0]).reshape(shape, order='F')
     return np.cos(yaw_grid)
+
+
+def _get_pitch_yaw_cos_sin_grids(nr, nc, yaw, pitch):
+    """
+    Auxiliary function that build cos and sin grids for yaw and pitch angles
+
+    Parameters
+    ----------
+    nr: int
+        number of rows in the image
+
+    nc: int
+        number of columns in the image
+
+    yaw: ndarray
+        array of yaw angles
+
+    pitch: ndarray
+        array of pitch angles
+
+    Returns
+    -------
+    cos_pitch: ndarray
+        matrix containing cos(pitch) values
+
+    sin_pitch: ndarray
+        matrix containing sin(pitch) values
+
+    cos_yaw: ndarray
+        matrix containing cos(yaw) values
+
+    sin_yaw: ndarray
+        matrix containing sin(yaw) values
+    """
+    # auxiliary cos and sin grid
+    cos_pitch = _cos_pitch_grid((nr, nc), pitch)
+    sin_pitch = _sin_pitch_grid((nr, nc), pitch)
+    cos_yaw = _cos_yaw_grid((nr, nc), yaw)
+    sin_yaw = _sin_yaw_grid((nr, nc), yaw)
+
+    return cos_pitch, sin_pitch, cos_yaw, sin_yaw
 
 
 def shift(key, array, axis=0):
@@ -243,10 +285,7 @@ def pitch_derivative(img, pitch, yaw, res_rho):
 
     nr, nc = img.shape[:2]
     # auxiliary cos and sin grid
-    cos_pitch = _cos_pitch_grid((nr, nc), pitch)
-    sin_pitch = _sin_pitch_grid((nr, nc), pitch)
-    cos_yaw = _cos_yaw_grid((nr, nc), yaw)
-    sin_yaw = _sin_yaw_grid((nr, nc), yaw)
+    cos_pitch, sin_pitch, cos_yaw, sin_yaw = _get_pitch_yaw_cos_sin_grids(nr, nc, yaw, pitch)
 
     rho = img.copy()
     rho = rho.astype(np.float64) / res_rho
@@ -297,10 +336,7 @@ def yaw_derivative(img, pitch, yaw, res_rho):
 
     nr, nc = img.shape[:2]
     # auxiliary cos and sin grid
-    cos_pitch = _cos_pitch_grid((nr, nc), pitch)
-    sin_pitch = _sin_pitch_grid((nr, nc), pitch)
-    cos_yaw = _cos_yaw_grid((nr, nc), yaw)
-    sin_yaw = _sin_yaw_grid((nr, nc), yaw)
+    cos_pitch, sin_pitch, cos_yaw, sin_yaw = _get_pitch_yaw_cos_sin_grids(nr, nc, yaw, pitch)
 
     rho = img.copy()
     rho = rho.astype(np.float64) / res_rho
@@ -375,6 +411,7 @@ def estimate_normals_from_spherical_img(img, pitch, yaw, res_rho):
 
 def get_normals(cloud, method='spherical', **kwargs):
     """
+    Function that given an input point cloud estimate normals
 
     Parameters
     ----------
@@ -382,7 +419,7 @@ def get_normals(cloud, method='spherical', **kwargs):
         input point cloud
     method: optional {'spherical', 'pca'}
         method to use to estimate normals
-    kwargs: dict
+    kwargs:
         optional paramters
 
     Returns
@@ -402,9 +439,11 @@ def get_normals(cloud, method='spherical', **kwargs):
         # project rho values
         rho_img = proj.project_points_values(cloud.xyz, np.linalg.norm(cloud.xyz, axis=1), aggregate_func='max')
         cl_rho = closing(rho_img, square(3))
-
+        # fill zero pixels with value in the morphological closing of the image
         rho_img[rho_img == 0] = cl_rho[rho_img == 0]
+        # define yaw_angles
         yaw_angles = np.linspace(yaw[0], yaw[1], res_yaw)
+        # define pitch angles
         pitch_angles = np.linspace(pitch[0], pitch[1], res_pitch)
 
         return estimate_normals_from_spherical_img(rho_img, pitch=pitch_angles, yaw=yaw_angles, res_rho=1.0)
