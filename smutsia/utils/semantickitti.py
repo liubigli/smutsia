@@ -5,6 +5,7 @@ import pandas as pd
 from pyntcloud import PyntCloud
 from skimage.morphology import opening, rectangle
 
+
 class SemanticKittiConfig:
     """
     Class that load the semantic kitti config file and helps to handle class ids
@@ -19,10 +20,9 @@ class SemanticKittiConfig:
         self.config = self.load_semantic_kitti_config(config_file)
         labels2id, id2label = self._remap_classes()
         self.labels2id = labels2id  # hashmap used to generate labels for semantic-segmentation in DL
-        self.id2label = id2label #  labels2id inverse hashmap
+        self.id2label = id2label  # labels2id inverse hashmap
         self.label2color = self._color_map()
         self.labels2ground = self._label_to_ground_remap()
-
 
     @staticmethod
     def load_semantic_kitti_config(filename=""):
@@ -46,6 +46,9 @@ class SemanticKittiConfig:
         return config
 
     def _color_map(self):
+        """
+        Map each label to a color RGB
+        """
         max_id = max(self.config['color_map'])
         label2colors = np.zeros((max_id + 1, 3), dtype=np.uint8)
         for k, v in self.config['color_map'].items():
@@ -54,6 +57,9 @@ class SemanticKittiConfig:
         return label2colors
 
     def _remap_classes(self):
+        """
+        Maps semantic-kitti labels to classes to learn for semantic segmentation
+        """
         learning_map = self.config['learning_map']
         learning_map_inv = self.config['learning_map_inv']
 
@@ -68,11 +74,14 @@ class SemanticKittiConfig:
         return remaps, inv_remaps
 
     def _label_to_ground_remap(self):
+        """
+        Maps semantic-kitti labels to ground/not ground label
+        """
         ground_items = np.array([40, 44, 48, 49, 60, 72])
         label_keys = list(self.config['learning_map'].keys())
         labels2ground = np.zeros(max(label_keys) + 1, dtype=np.int)
         labels2ground[ground_items] = 1
-        return  labels2ground
+        return labels2ground
 
 
 def retrieve_layers(points, max_layers=64):
@@ -80,6 +89,18 @@ def retrieve_layers(points, max_layers=64):
     Function that retrieve the layer for each point. We do the hypothesis that layer are stocked one after the other.
     And each layer is stocked in a clockwise (or anticlockwise) fashion.
 
+    Parameters
+    ----------
+    points: ndarray
+        input point cloud
+
+    max_layers: int
+        maximum number of layers to detect
+
+    Returns
+    -------
+    layers: ndarray
+        array containing for each point the id of corresponding layer in the scanner that acquired it
     """
     x = points[:, 0]
     y = points[:, 1]
@@ -139,6 +160,19 @@ def retrieve_layers(points, max_layers=64):
 
 
 def add_layers(points):
+    """
+    Add a column containing layer ids to the array of points
+
+    Parameters
+    ----------
+    points: ndarray
+        input point cloud
+
+    Returns
+    -------
+    new_points: ndarray
+        point cloud with layer information
+    """
     layers = retrieve_layers(points)
 
     new_points = np.c_[points, layers]
@@ -149,7 +183,22 @@ def add_layers(points):
 def load_label_file(bin_path, instances=False):
     """
     Utils function that read semantic-kitti labels
-    TODO: create a specific library to read semantic-kitti labels and move this function there
+
+    Parameters
+    ----------
+    bin_path: str
+        path to binary path
+
+    instances: bool
+        if True it loads also istance labels
+
+    Returns
+    -------
+        seg_labels: ndarray
+            point label array
+
+        inst: ndarray
+            instance label array
     """
     labels = np.fromfile(bin_path, dtype=np.uint32).reshape(-1)
 
@@ -232,7 +281,7 @@ def load_pyntcloud(filename, add_label=False, instances=False):
         output pointcloud
     """
     points = load_bin_file(filename)
-    cloud = PyntCloud(pd.DataFrame(points, columns=['x', 'y','z', 'i']))
+    cloud = PyntCloud(pd.DataFrame(points, columns=['x', 'y', 'z', 'i']))
     if add_label:
         labels = load_label_file(filename.replace('velodyne', 'labels').replace('bin', 'label'), instances=instances)
         if instances:
@@ -242,5 +291,3 @@ def load_pyntcloud(filename, add_label=False, instances=False):
             cloud.points['labels'] = labels
 
     return cloud
-
-
