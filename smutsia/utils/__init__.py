@@ -25,7 +25,8 @@ __all__ = [
     'subset_backprojection',
     'subset_projection',
     'compute_scores',
-    'process_iterable'
+    'process_iterable',
+    'load_yaml'
 ]
 
 from .graph import resize_graph, shuffle_labels, reconstruct_ith_mst, get_positive_degree_nodes, get_subgraph
@@ -34,4 +35,4 @@ from .image import pixel_to_node, node_to_pixel, img_to_graph, plot_graph, plot_
 from .image import stick_two_images
 from .arrays import cartesian_product, set_distance, subset_backprojection, subset_projection
 from .scores import compute_scores
-from .process import process_iterable
+from .process import process_iterable, load_yaml
