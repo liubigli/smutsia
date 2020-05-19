@@ -433,9 +433,10 @@ def get_normals(cloud, method='spherical', **kwargs):
         yaw = kwargs.get("yaw", [0, 2 * np.pi])
         res_pitch = kwargs.get("res_pitch", 64)
         res_yaw = kwargs.get("res_yaw", 2048)
+        back_project = kwargs.get("back_proj", False)
 
         # initialise projector
-        proj = Projection(proj_type='spherical', res_yaw=res_yaw, res_pitch=res_pitch, fov_yaw=yaw, fov_pitch=pitch)
+        proj = Projection(proj_type='layers', res_yaw=2048, nb_layers=64)
         # project rho values
         rho_img = proj.project_points_values(cloud.xyz, np.linalg.norm(cloud.xyz, axis=1), aggregate_func='max')
         cl_rho = closing(rho_img, square(3))
@@ -446,7 +447,13 @@ def get_normals(cloud, method='spherical', **kwargs):
         # define pitch angles
         pitch_angles = np.linspace(pitch[0], pitch[1], res_pitch)
 
-        return estimate_normals_from_spherical_img(rho_img, pitch=pitch_angles, yaw=yaw_angles, res_rho=1.0)
+        sp_normals = estimate_normals_from_spherical_img(rho_img, pitch=pitch_angles, yaw=yaw_angles, res_rho=1.0)
+
+        if back_project:
+            lidx, i_img, j_img = proj.projector.project_point(cloud.xyz)
+            return sp_normals.reshape(-1,3)[lidx]
+        else:
+            return sp_normals
 
     elif method.lower() == 'pca':
         k = kwargs.get("k", 10)
