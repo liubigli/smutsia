@@ -56,7 +56,7 @@ def z_nz_dist(xyz, normals, src, dst, aggr='diff'):
     nz = np.abs(normals[:, 2])
 
     # apply logistic function to normals
-    log_nz = _logistic_function(nz, x0=0.7, L=1, k=16)
+    log_nz = _logistic_function(nz, x0=0.7, L=1, k=32)
     if aggr == 'max':
         weights = np.c_[(z[src] / log_nz[src]), (z[dst] / log_nz[dst])].max(axis=1)
     else:
