@@ -2,7 +2,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import yaml
 import multiprocessing as mp
+from functools import partial
+
+
+def load_yaml(filename):
+    with open(filename, 'r') as f:
+        d = yaml.safe_load(f)
+
+    return d
 
 
 def process_iterable(iterable, func, **kwargs):
@@ -33,10 +42,8 @@ def process_iterable(iterable, func, **kwargs):
     n_cpu = mp.cpu_count()
     print('nCPUs = ' + repr(n_cpu))
     pool = mp.Pool(processes=n_cpu)
-    from functools import partial
     if len(kwargs):
         func = partial(func, **kwargs)
-    func = partial(func, **kwargs)
-    result = pool.starmap(func, iterable)
+    result = pool.map(func, iterable)
     pool.close()
     return result
