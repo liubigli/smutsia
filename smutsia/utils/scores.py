@@ -19,7 +19,7 @@ def compute_scores(y_true, y_pred, threshold=0.0, print_info=False):
     if threshold > 0.0:
         y_pred = (y_pred > threshold).flatten()
     acc = accuracy_score(y_true, y_pred)
-    recall = recall_score(y_pred, y_true)
+    recall = recall_score(y_true, y_pred)
     precision = precision_score(y_true, y_pred)
     f1 = f1_score(y_true, y_pred)
     jaccard = jaccard_score(y_true, y_pred)
