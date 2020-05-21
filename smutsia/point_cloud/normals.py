@@ -451,7 +451,7 @@ def get_normals(cloud, method='spherical', **kwargs):
 
         if back_project:
             lidx, i_img, j_img = proj.projector.project_point(cloud.xyz)
-            return sp_normals.reshape(-1,3)[lidx]
+            return sp_normals.reshape(-1, 3)[lidx]
         else:
             return sp_normals
 
