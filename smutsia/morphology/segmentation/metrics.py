@@ -59,6 +59,8 @@ def z_nz_dist(xyz, normals, src, dst, aggr='diff'):
     log_nz = _logistic_function(nz, x0=0.7, L=1, k=32)
     if aggr == 'max':
         weights = np.c_[(z[src] / log_nz[src]), (z[dst] / log_nz[dst])].max(axis=1)
+    elif aggr == 'min':
+        weights = np.c_[(z[src] / log_nz[src]), (z[dst] / log_nz[dst])].min(axis=1)
     else:
         weights = np.abs((z[src] / log_nz[src]) - (z[dst] / log_nz[dst]))
 
