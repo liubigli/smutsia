@@ -26,8 +26,8 @@ py::array build_spherical_edges(py::array_t<int> lidx_ndarray, py::array_t<doubl
     if ( points_ndarray.shape()[1] != 3 )
         throw std::runtime_error("Input should have size [N,3]");
 
-    py::print("Point cloud shape: ");
-    py::print(points_ndarray.shape()[0], points_ndarray.shape()[1]);
+//    py::print("Point cloud shape: ");
+//    py::print(points_ndarray.shape()[0], points_ndarray.shape()[1]);
 
     // allocate std::vector (to pass to the C++ function)
     std::vector<PointXYZ> points(points_ndarray.shape()[0]);
@@ -38,11 +38,11 @@ py::array build_spherical_edges(py::array_t<int> lidx_ndarray, py::array_t<doubl
         points[i].z = points_ndarray.data()[3*i + 2];
     }
 
-    py::print("Point array shape: ", points.size());
+//    py::print("Point array shape: ", points.size());
     // initialise map pix ->
     std::map<int, std::vector<int>> pxl_map;
     std::vector<int> touched_pxl(height*width, 0);
-    py::print(touched_pxl.size(), height*width);
+//    py::print(touched_pxl.size(), height*width);
     for (auto idx = 0; idx < lidx_buff.shape[0]; idx++){
         if (pxl_map.find(lidx[idx]) != pxl_map.end()) { // if the key exists we add another element
             pxl_map[lidx[idx]].push_back(idx);
