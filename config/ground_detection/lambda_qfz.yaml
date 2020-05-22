@@ -1,0 +1,6 @@
+name: "hybrid"
+threshold: 2
+delta_ground: 0.2
+res_x: 5
+res_y: 5
+res_z: 10
