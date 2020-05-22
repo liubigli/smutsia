@@ -97,16 +97,19 @@ def merge_labels(xyz, cc, cc_min_size=40, ransac_max_dist=0.15, ransac_max_it=10
     ground: ndarray
         boolean array that for each point says if it belongs or not to the ground
     """
-    # counting cc ans selecting only those bigger than 100 points
+    # counting cc ans selecting only those bigger than cc_min_size points
     cc_ids, cc_size = np.unique(cc, return_counts=True)
     # sort cc according to their size
     iargsort = cc_size.argsort()[::-1]
     cc_size = cc_size[iargsort]
     cc_ids = cc_ids[iargsort]
+    # select connected components bigger than cc_min_size
     sel_cc = cc_ids[cc_size > cc_min_size]
 
     # biggest cc is always considered as ground
     cc0 = cc == cc_ids[0]
+
+    # copy cc0 to ground
     ground = cc0.copy()
 
     for i in sel_cc[1:]:
@@ -136,7 +139,7 @@ def hybrid_ground_detection(cloud,
     threshold: float
         threshold value for lambda flat zones
 
-    knn_graph: int
+    k_graph: int
         number of nearest neighbors to connect
 
     nb_layers: int
@@ -163,19 +166,142 @@ def hybrid_ground_detection(cloud,
     inter_perc: float
         minimum ratio of inliners points to consider a cc as comparable with ground
     """
-
-    knn_graph = cloud_knn_graph(cloud.xyz, k=knn_graph)
+    # initialise knn graph
+    k_graph = cloud_knn_graph(cloud.xyz, k=knn_graph)
+    # initialise spherical graph
     spherical_graph = cloud_spherical_graph(cloud.xyz, nb_layers=nb_layers, res_yaw=res_yaw)
-    graph = merge_graphs([knn_graph, spherical_graph])
+    # 3D is the union of knn graph and spherical graph
+    graph = merge_graphs([k_graph, spherical_graph])
+
+    # estimate normals
     normals = get_normals(cloud, method=method_normals, k=knn_normal)
+
     src, dst, _ = find(graph)
+    # weight of the 3D graph are defined by z_nz_dist
     weights = z_nz_dist(cloud.xyz, normals, src, dst)
+
+    # wg is the weighted graph that we are going to use
     wg = csr_matrix((weights, (src, dst)), shape=graph.shape)
 
+    # extract quasi flat zones removing from the graph all the edges whose weight is bigger than threshold value
     cc = quasi_flat_zones(wg, threshold=threshold, debug_info=True)
-    # plot_cloud(cloud.xyz, scalars=cc, cmap=plt.cm.tab20, point_size=1.5, interact=True, notebook=False)
+
+    # finally we extract the ground analysing biggest connected components and merging the comparable between them
     ground = merge_labels(cloud.xyz, cc, cc_min_size=cc_min_size,
                           ransac_max_dist=ransac_max_dist, ransac_max_it=ransac_max_it, inter_perc=inter_perc)
-    # plot_cloud(cloud.xyz, scalars=ground, point_size=1.5, interact=True, notebook=False)
+    return ground
+
+
+def connect_3d_graph(cloud, normals, wg):
+    from scipy.sparse.csgraph import connected_components
+    from smutsia.utils import set_distance, cartesian_product
+    from scipy.spatial import cKDTree
+
+    n_cc, cc_wg = connected_components(wg)
+    dij = np.zeros((n_cc, n_cc))
+    aminij = np.zeros((n_cc, n_cc, 2), dtype=np.int)
+    for i in range(n_cc):
+        for j in range(i + 1, n_cc):
+            dij[i, j], (h, k) = set_distance(cloud.xyz[cc_wg == i], cloud.xyz[cc_wg == j], return_amin=True)
+            # remap points to id in original point cloud
+            h = np.arange(len(cloud.xyz))[cc_wg == i][h]
+            k = np.arange(len(cloud.xyz))[cc_wg == j][k]
+            aminij[i, j] = h, k
+            aminij[j, i] = k, h
+            dij[j, i] = dij[i, j]
+    closest_cc = dij.argsort(axis=1)[:, 1:4]
+    trees = [cKDTree(cloud.xyz[cc_wg == i]) for i in range(n_cc)]
+    sub_ids = [np.arange(len(cloud.xyz))[cc_wg == i] for i in range(n_cc)]
+    src_mini = []
+    dst_mini = []
+    for i in range(n_cc):
+        for j in closest_cc[i]:
+            x_i, x_j = aminij[i, j]
+            _, neigh_i = trees[i].query(cloud.xyz[x_j], k=min(30, len(sub_ids[i]) - 1))
+            _, neigh_j = trees[j].query(cloud.xyz[x_i], k=min(30, len(sub_ids[j]) - 1))
+
+            neigh_i = sub_ids[i][neigh_i]
+            neigh_j = sub_ids[j][neigh_j]
+            out = cartesian_product([neigh_i, neigh_j])
+            out = out[np.linalg.norm(cloud.xyz[out[:, 0]] - cloud.xyz[out[:, 1]], axis=1) < 12.0]
+            src_mini.append(out[:, 0])
+            dst_mini.append(out[:, 1])
+
+    src_mini = np.concatenate(src_mini)
+    dst_mini = np.concatenate(dst_mini)
+    weights_mini = z_nz_dist(cloud.xyz, normals, src_mini, dst_mini)
+    mini_graph = csr_matrix((weights_mini, (src_mini, dst_mini)), shape=wg.shape)
+
+    return wg.maximum(mini_graph)
+
+def sel_cc(cc, z, cc_min_size=20, max_cc=10):
+    cc_ids, cc_size = np.unique(cc, return_counts=True)
+    iargsort = cc_size.argsort()[::-1]
+    cc_size = cc_size[iargsort]
+    cc_ids = cc_ids[iargsort]
+    # select connected components bigger than cc_min_size
+    sel_cc = cc_ids[cc_size > cc_min_size]
+    z_vals = np.zeros_like(sel_cc)
+    for n, ids in enumerate(sel_cc):
+        z_vals[n] = z[cc == ids].mean()
+
+    zarg = z_vals.argsort()
+    sub_set = np.zeros_like(cc, dtype=np.bool)
+    for ids in sel_cc[zarg][:max_cc]:
+        sub_set += cc == ids
+    return sub_set, subset_backprojection(sub_set)
+
+
+def iterative_step(cloud, knn_normals=10, spherical_graph=None):
+    normals = get_normals(cloud, method='pca', k=knn_normals)
+    knn_graph = cloud_knn_graph(cloud.xyz, k=10)
+    if spherical_graph is None:
+        spherical_graph = cloud_spherical_graph(cloud.xyz, nb_layers=64, res_yaw=2048)
+    # 3D graph
+    graph = merge_graphs([knn_graph, spherical_graph])
+
+    src, dst, _ = find(graph)
+    # the weights are z / n_z
+    weigths = z_nz_dist(cloud.xyz, normals, src, dst)
+    # weighted 3D graph
+    wg = csr_matrix((weigths, (src, dst)), shape=graph.shape)
+    wg = connect_3d_graph(cloud, normals, wg)
+
+    ncc, cc = quasi_flat_zones(wg, threshold=0.20, debug_info=True, return_ncc=True)
+    return ncc, cc
+
+
+def iterative_hybrid(cloud,
+                     threshold,
+                     knn_graph=10,
+                     nb_layers=64,
+                     res_yaw=2048,
+                     method_normals='pca',
+                     knn_normal=30,
+                     cc_min_size=40,
+                     ransac_max_dist=0.15,
+                     ransac_max_it=100,
+                     inter_perc=0.5):
+
+    max_cc = 20  ## absolutely wrong!!! we must find a way to change this
+    subcloud = get_sub_cloud(cloud.xyz, np.ones(len(cloud.xyz), dtype=np.bool))
+    spherical_graph = cloud_spherical_graph(cloud.xyz, nb_layers=64, res_yaw=2048)
+    ncc, cc0 = iterative_step(subcloud, knn_normals=knn_normal, spherical_graph=spherical_graph)
+    backprop = np.arange(len(cloud.xyz))
+    it = 0
+    cc = cc0.copy()
+    while ncc > max_cc and it < 10:
+        print(it)
+        subset, backprop_t = sel_cc(cc, subcloud.xyz[:, 2], max_cc=max_cc)
+        backprop = backprop[backprop_t]
+        subcloud = get_sub_cloud(subcloud.xyz, subset)
+        ncc, cc = iterative_step(subcloud, knn_normals=knn_normal, spherical_graph=spherical_graph[backprop,:][:,backprop])
+        it += 1
+
+    cc_ground = np.unique(cc0[backprop])
+
+    ground = np.zeros_like(cc0, dtype=np.bool)
+    for ids in cc_ground:
+        ground += (cc0 == ids)
 
     return ground
