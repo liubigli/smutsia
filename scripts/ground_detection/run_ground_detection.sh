@@ -1,0 +1,2 @@
+python ground_detection.py --dataset=semantickitti --method=qfz --params=../../config/ground_detection/lambda_qfz.yaml --sequence=08 --start=0 --end=-1 --step=100 --chunk_size=20
+python ground_detection.py --dataset=semantickitti --method=hybrid --params=../../config/ground_detection/hybrid.yaml --sequence=08 --start=0 --end=-1 --step=100 --chunk_size=20

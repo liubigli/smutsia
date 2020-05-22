@@ -1,0 +1,1 @@
+c++ -O3 -Wall -shared -std=c++11 -fPIC `python -m pybind11 --includes` spherical_edges.cpp -o spherical_edges`python-config --extension-suffix`
