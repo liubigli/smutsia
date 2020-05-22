@@ -2,7 +2,7 @@ import os
 import argparse
 import numpy as np
 from glob import glob
-from definitions import SEMANTICKITTI_PATH
+from definitions import SEMANTICKITTI_PATH, SEMANTICKITTI_CONFIG
 from smutsia.utils import process_iterable, load_yaml
 from smutsia.utils.semantickitti import load_pyntcloud, SemanticKittiConfig
 from smutsia.point_cloud.ground_detection import *
@@ -24,7 +24,6 @@ for elem in mySelect:
     selectedId.extend(elem)
     condensedId.append(elem)
 
-print(selectedId, condensedId)
 
 def recursively_add_params(key, yaml_config, params):
     """
@@ -106,14 +105,27 @@ def load_sequence(datapath, start, end, step, extension='bin'):
     return files[start:end:step]
 
 
-def analyse_results(cloud, savedir):
+def analyse_results(data, savedir, ground_id=40, classes=None):
+    """
+    Parameters
+    ----------
+    data: iterable
+        tuple or list containing y_pred, y_true, labels, filepath
 
-    skconfig = SemanticKittiConfig('/home/leonardo/Dev/github/smutsia/config/labels/semantic-kitti.yaml')
-    pc = cloud[0]
-    y_pred = cloud[1]
-    filepath = cloud[2]
+    savedir: str
+        path where plot must be saved
+
+    ground_id: int
+        id of ground/road class
+
+    classes: list
+        list of class names to use as x-ticks and y-ticks in confusion matrix plot
+    """
+    y_pred = data[0]
+    y_true = data[1]
+    labels = data[2]
+    filepath = data[3]
     filename = filepath.split('/')[-1].split('.')[0]
-    y_true = skconfig.labels2ground[pc.points.labels.values.astype(int)]
 
     # compute scores
     scores = compute_scores(y_true, y_pred, print_info=True)
@@ -121,14 +133,10 @@ def analyse_results(cloud, savedir):
     f.write(str(scores))
     f.close()
 
-    cm = get_confusion_matrix(pc.points.labels.values.astype(int), 40 * y_pred, selectedId)
+    cm = get_confusion_matrix(labels, ground_id * y_pred, selectedId)
     cm = condense_confusion_matrix(cm[0], selectedId, condensedId)
-    classes = ['other', 'vehicles', 'cycles', 'person', 'ground', 'building', 'moving-objects']
     plot_confusion_matrix(cm, classes=classes, normalize=True, savefig=os.path.join(savedir, filename + '.eps'),
-                          title='Confusion Matrix ' + filename)
-
-    return y_true, y_pred, pc.points.labels.values.astype(int)
-
+                          title='Confusion Matrix ' + filename.upper())
 
 
 def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=1, chunk_size=-1):
@@ -159,6 +167,7 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
 
     chunk_size: int
     """
+    # initialise model variable
     if method == 'ransac':
         func = naive_ransac
         pass
@@ -166,7 +175,7 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
         func = hybrid_ground_detection
         pass
     elif method == 'qfz':
-        func = None
+        func = dart_ground_detection
         pass
     elif method == 'csf':
         func = None
@@ -176,48 +185,61 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
     else:
         raise ValueError("Method {} not known.".format(method))
 
+    # load model parameters
     params = load_parameters(config_file)
 
+    # initialise dataset variables
     if dataset == 'semantickitti':
         basedir = os.path.join(SEMANTICKITTI_PATH, sequence, 'velodyne')
+        db_config = SemanticKittiConfig(SEMANTICKITTI_CONFIG)
+        classes = ['other', 'vehicles', 'cycles', 'person', 'ground', 'building', 'moving-objects']
+        ground_id = 40
     else:
         raise ValueError("Dataset {} not known.".format(dataset))
+
     # loading list of files to treat
     files = load_sequence(basedir, start, end, step)
     n = len(files)
+
     # setting chunk equal to the length of the list as default
     chunk_size = chunk_size if chunk_size > 0 else n
+
+    # list containing gt values
     y_true = []
+    # list containing pred values
     y_pred = []
+    # list containing all label values
     labels = []
+
     for i in range(0, n, chunk_size):
-        print("Loading chunk in interval {}-{}".format(i, i + chunk_size))
+        print("Loading chunk in interval {}-{}".format(i, min(i + chunk_size, n)))
+
         if dataset == 'semantickitti':
-            clouds = process_iterable(files[i:i + chunk_size], load_pyntcloud, add_label=True)
+            # load cloud in the chunk and store chunk labels and chunk ground truth
+            clouds = process_iterable(files[i:i + chunk_size], load_pyntcloud, **{'add_label': True})
+            chunk_labels = [cloud.points.labels.values.astype(int) for cloud in clouds]
+            chunk_gt = [db_config.labels2ground[lbl] for lbl in chunk_labels]
         else:
             raise ValueError("Dataset {} not known.".format(dataset))
 
-        results = process_iterable(clouds, func, **params)
-        out = process_iterable(zip(clouds, results, files[i:i+chunk_size]), analyse_results, **{'savedir':savedir})
-        for el in out:
-            y_true.append(el[0])
-            y_pred.append(el[1])
-            labels.append(el[2])
+        # call func and predict ground
+        chunk_pred = process_iterable(clouds, func, **params)
+        print("Analysing predictions for chunk {}-{}".format(i, min(i + chunk_size, n)))
+        # analyse and plot results for each file in chunk
+        process_iterable(zip(chunk_pred, chunk_gt, chunk_labels, files[i:i+chunk_size]),
+                         analyse_results,
+                         **{'savedir': savedir, 'classes': classes, 'ground_id': ground_id})
+
+        labels += chunk_labels
+        y_true += chunk_gt
+        y_pred += chunk_pred
 
     y_true = np.concatenate(y_true)
     y_pred = np.concatenate(y_pred)
     labels = np.concatenate(labels)
-
-    scores = compute_scores(y_true, y_pred, print_info=True)
-    f = open(os.path.join(savedir, 'all' + '.txt'), "w")
-    f.write(str(scores))
-    f.close()
-
-    cm = get_confusion_matrix(labels, 40 * y_pred, selectedId)
-    cm = condense_confusion_matrix(cm[0], selectedId, condensedId)
-    classes = ['other', 'vehicles', 'cycles', 'person', 'ground', 'building', 'moving-objects']
-    plot_confusion_matrix(cm, classes=classes, normalize=True, savefig=os.path.join(savedir, 'all.eps'),
-                          title='Confusion Matrix All')
+    print("Compute total scores")
+    # analyse and plot global results
+    analyse_results([y_pred, y_true, labels, 'all.txt'], savedir=savedir, ground_id=ground_id, classes=classes)
 
 
 if __name__ == "__main__":
@@ -244,7 +266,9 @@ if __name__ == "__main__":
           " Selected sequence {} and interval {}-{} each {}.".format(gd_method, dataset, seq,
                                                                      start_frame, end_frame, step_frames))
 
-    savedir = '/home/leonardo/Dev/github/smutsia/results/ground_detection/hybrid/'
+    savedir = os.path.join('/home/leonardo/Dev/github/smutsia/results/ground_detection/', gd_method)
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
 
     main(dataset=dataset,
          method=gd_method,
