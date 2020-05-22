@@ -13,4 +13,4 @@ __all__ = [
 # from ._morphological_segmentation import alpha_omega_constrained_connectivity
 from ._morphological_segmentation import quasi_flat_zones
 from ._morphological_segmentation import threshold_edges
-from .metrics import z_nz_dist
+from ._metrics import z_nz_dist
