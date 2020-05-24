@@ -5,9 +5,10 @@ from smutsia.point_cloud.projection import Projection
 
 
 class LambdaGDParameters:
-    def __init__(self, my_lambda=2, delta_ground=0.2, nl=sm.HexSE()):
+    def __init__(self, my_lambda=2, delta_ground=0.2, delta_h_circle=0.5, nl=sm.HexSE()):
         self.my_lambda = my_lambda
         self.delta_ground = delta_ground
+        self.delta_h_circle = delta_h_circle
         self.nl = nl
 
 
@@ -165,7 +166,7 @@ def draw_dart(im, points, proj, h_scanner, alpha0, nb_layers=64):
     radius_index = {}
     for i in range(nb_layers):
         angle = alpha0 - (res_alpha * i)
-        angle_rad = ((90-angle) * np.pi)/180.0
+        angle_rad = ((90-angle) * np.pi) / 180.0
         radius = int(np.round(abs(h_scanner * np.tan(angle_rad) * res_x)))
 
         if radius > (im.getWidth() + im.getHeight()):
@@ -184,7 +185,7 @@ def draw_dart(im, points, proj, h_scanner, alpha0, nb_layers=64):
 
     # for this index, get the corresponding radius
     # for larger radius assign max_index+1
-    r = im.getHeight()+im.getWidth()
+    r = im.getHeight() + im.getWidth()
     while r > radius_index[index]:
         inverse_radius_index[r] = index + 1
         r = r - 1
@@ -208,7 +209,7 @@ def draw_dart(im, points, proj, h_scanner, alpha0, nb_layers=64):
     # fill the image with radius and angular sector
     for x in range(im.getWidth()):
         for y in range(im.getHeight()):
-            deltax, deltay = x-x0, y-y0
+            deltax, deltay = x - x0, y - y0
             if deltax == 0 and deltay == 0:
                 theta = 0
             else:
@@ -293,11 +294,17 @@ def dart_interp(points, proj, im, im_interp, nl):
 
     # propagation de la valeur min (!=0) sur toute la cellule
     label_with_measure(im_dart, im, im_interp, "min", nl)
+
+    # BMI
     sm.compare(im_interp, "==", mymax + 1, 0, im_interp, im_interp)  # empty cells have max-value
     sm.compare(im, "==", mymax + 1, 0, im, im)  # mymax+1 -> 0 again
 
+    #         imObj = Image(im)
+    #         sub(im,imInterp,imObj)
+
     sm.compare(im, "==", 0, im_interp, im, im_interp)  # only empty pixels are interpolated
 
+    # return im_chess, imObj
     return im_dart
 
 
@@ -319,6 +326,8 @@ def ground_detection_min_circle(params, points, proj, res_z, im_min, im_max):
 
     proj: Projection
 
+    res_z: float
+
     im_min: sm.Image
 
     im_max: sm.Image
@@ -327,7 +336,9 @@ def ground_detection_min_circle(params, points, proj, res_z, im_min, im_max):
     im_ground = sm.Image(im_min)
     im_circle = compute_circle(points, proj, im_max, nl)
     im_tmp = sm.Image(im_circle)
-    sm.dilate(im_circle, im_tmp, nl(4))
+    # NEW:
+    sm.dilate(im_circle, im_tmp, nl(1 * proj.res_x))
+    # OLD: sm.dilate(im_circle, im_tmp, nl(4))
 
     sm.compare(im_tmp, ">", im_circle, im_max, 0, im_tmp)
     histo = sm.histogram(im_tmp)
@@ -342,14 +353,25 @@ def ground_detection_min_circle(params, points, proj, res_z, im_min, im_max):
             my_min = hist_keys[k]
             break
 
-    sm.threshold(im_tmp, my_min, min(255, my_min + 5), im_ground)
+    # NEW:
+    delta = int(params.delta_h_circle * res_z)
+    sm.threshold(im_tmp, my_min, min(255, my_min + delta), im_ground)
+    # OLD:
+    # sm.threshold(im_tmp, my_min, min(255, my_min + 5), im_ground)
 
     sm.sub(im_max, im_min, im_tmp)
 
     # put to zero all the non zero pixels in imGround
     sm.compare(im_tmp, ">", int(np.round(0.3 * res_z)), 0, im_ground, im_ground)
-    se_2x2 = sm.StrElt(True, [0, 1, 2, 3])
-    sm.open(im_ground, im_ground, se_2x2)
+    # NEW:
+    if(proj.res_x > 1):
+        # open with se_2x2
+        se_2x2 = sm.StrElt(True, [0, 1, 2, 3])
+        sm.open(im_ground,im_ground,se_2x2)
+
+    # OLD:
+    # se_2x2 = sm.StrElt(True, [0, 1, 2, 3])
+    # sm.open(im_ground, im_ground, se_2x2)
 
     im_interp, im_dart = im_dart_interp(points, proj, im_max, nl)
 
@@ -386,26 +408,51 @@ def back_projection(proj, points, imres, pred_labels=None):
     return pred_labels
 
 
-def back_projection_ground(proj, points, res_z, im_min, im_ground, delta_ground, percent=0.5):
+def back_projection_ground(proj, points, res_z, im_min, im_ground, im_delta, delta_ground, percent=0.5):
+    """
+    Parameters
+    ----------
+    proj: Projection
 
+    points: ndarray
+
+    res_z: float
+
+    im_min: sm.Image
+
+    im_ground: sm.Image
+
+    im_delta: sm.Image
+
+    delta_ground: float
+
+    percent: float
+
+    Returns
+    -------
+
+    pred_labels: ndarray
+    """
     # Le calcul de npZ (echelle image) a deja ete fait. Voir si on peut le recuperer...
     p_z = points[:, 2]
     z_min = np.percentile(p_z, percent)
     moved_z = p_z - z_min
     moved_z = np.clip(moved_z, a_min=0, a_max = np.max(moved_z))
-    npZ = (np.floor(moved_z * res_z) + 1).astype(int)
+    np_z = (np.floor(moved_z * res_z) + 1).astype(int)
 
     imtmp = sm.Image(im_min)
     mymax = im_min.getDataTypeMax()
     # min on ground, 255 elsewhere
     sm.compare(im_ground, ">", 0, im_min, mymax, imtmp)
     p_mntz = back_projection(proj, points, imtmp)
-    p_dsmz = npZ - p_mntz
+    p_dsmz = np_z - p_mntz
 
     delta = delta_ground * res_z
-    # pixel labelled as ground (<mymax), and point not too far (deltaGround) from min
-    # & (predLabels != carId)
-    idx = ((p_mntz < mymax) & (p_dsmz <= delta))
+
+    p_delta = back_projection(proj,points, im_delta)
+    p_delta = p_delta * delta
+    # pixel labelled as ground (<mymax), and point not too far (deltaGround) from min & (predLabels != carId)
+    idx = ((p_mntz < mymax) & (p_dsmz <= p_delta) ) #& (predLabels != carId)
 
     pred_labels = np.zeros_like(p_z, dtype=np.bool)
 
@@ -414,7 +461,7 @@ def back_projection_ground(proj, points, res_z, im_min, im_ground, delta_ground,
     return pred_labels
 
 
-def dart_ground_detection(cloud, threshold, delta_ground, res_x, res_y, res_z):
+def dart_ground_detection(cloud, threshold, delta_ground, delta_h_circle, res_x, res_y, res_z):
     """
     Parameters
     ----------
@@ -424,13 +471,15 @@ def dart_ground_detection(cloud, threshold, delta_ground, res_x, res_y, res_z):
 
     delta_ground: float
 
+    delta_h_circle: float
+
     res_x: float
 
     res_y: float
 
     res_z: float
     """
-    params = LambdaGDParameters(my_lambda=threshold, delta_ground=delta_ground)
+    params = LambdaGDParameters(my_lambda=threshold, delta_ground=delta_ground, delta_h_circle=delta_h_circle)
 
     points = cloud.xyz
     labels = cloud.points.labels.values.astype(int)
@@ -444,6 +493,15 @@ def dart_ground_detection(cloud, threshold, delta_ground, res_x, res_y, res_z):
                                                        im_min=im_min,
                                                        im_max=im_max)
 
+    im_label = sm.Image(im_min, "UINT16")
+    sm.lambdaLabel(im_min, 1, im_label, params.nl)
+    im_ground2 = sm.Image(im_ground)
+    label_with_measure(im_label, im_ground, im_ground2, "max", params.nl)
+    im_delta = sm.Image(im_ground)
+    sm.compare(im_ground, ">", 0, 4, 0, im_delta)
+    sm.compare(im_ground2, ">", im_ground, 1, im_delta, im_delta)
+    sm.copy(im_ground2, im_ground)
+
     ground = back_projection_ground(proj=proj, points=points, res_z=res_z, im_min=im_min, im_ground=im_ground,
-                                    delta_ground=delta_ground)
+                                    im_delta=im_delta, delta_ground=delta_ground)
     return ground
