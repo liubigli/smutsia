@@ -8,6 +8,7 @@ __all__ = [
     'filter_points'
 ]
 
+
 def filter_points(points,
                   side_range=None,
                   fwd_range=None,
