@@ -1,4 +1,5 @@
 import os
+import ntpath
 import yaml
 import numpy as np
 import pandas as pd
@@ -262,11 +263,11 @@ def load_kitti_pc(filename, add_label=False, instances=False):
     return points
 
 
-def load_pyntcloud(filename, add_label=False, instances=False):
+def load_pyntcloud(filepath, add_label=False, instances=False):
     """
     Parameters
     ----------
-    filename: str
+    filepath: str
         path to pointcloud to read
 
     add_label: bool
@@ -280,14 +281,25 @@ def load_pyntcloud(filename, add_label=False, instances=False):
     cloud: PyntCloud
         output pointcloud
     """
-    points = load_bin_file(filename)
+    points = load_bin_file(filepath)
     cloud = PyntCloud(pd.DataFrame(points, columns=['x', 'y', 'z', 'i']))
     if add_label:
-        labels = load_label_file(filename.replace('velodyne', 'labels').replace('bin', 'label'), instances=instances)
+        labels = load_label_file(filepath.replace('velodyne', 'labels').replace('bin', 'label'), instances=instances)
         if instances:
             cloud.points['labels'] = labels[0]
             cloud.points['instances'] = labels[1]
         else:
             cloud.points['labels'] = labels
+
+    basename = ntpath.basename(filepath)
+    out = basename.split('.')[:-1]
+    if len(out) == 1:
+        filename = out[0]
+    else:
+        filename = '.'.join(out)
+
+    # adding to object attributes about filename and filepath
+    cloud.filename = filename
+    cloud.filepath = filepath
 
     return cloud
