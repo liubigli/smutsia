@@ -1,7 +1,7 @@
 from pyntcloud import PyntCloud
 
 
-def naive_ransac(cloud, max_dist, max_iterations, n_inliers_to_stop):
+def naive_ransac(cloud, max_dist, max_iterations, n_inliers_to_stop=None):
     """
     Naive method that estimates the ground as a unique plane.
 
