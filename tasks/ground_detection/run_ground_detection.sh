@@ -1,2 +1,11 @@
-python ground_detection.py --dataset=semantickitti --method=qfz --params=../../config/ground_detection/lambda_qfz.yaml --sequence=08 --start=0 --end=-1 --step=100 --chunk_size=20
-python ground_detection.py --dataset=semantickitti --method=hybrid --params=../../config/ground_detection/hybrid.yaml --sequence=08 --start=0 --end=-1 --step=100 --chunk_size=20
+DATASET='semantickitti'
+SEQUENCE='08'
+START=0
+END=-1
+STEP=100
+CHUNK_SIZE=20
+PARAMDIR='../../config/ground_detection/'
+
+python ground_detection.py --dataset=$DATASET --method='qfz' --params=$PARAMDIR'lambda_qfz.yaml' --sequence=$SEQUENCE --start=$START --end=$END --step=$STEP --chunk_size=$CHUNK_SIZE
+python ground_detection.py --dataset=$DATASET --method='hybrid' --params=$PARAMDIR'hybrid.yaml' --sequence=$SEQUENCE --start=$START --end=$END --step=$STEP --chunk_size=$CHUNK_SIZE
+python ground_detection.py --dataset=$DATASET --method='ransac' --params=$PARAMDIR'ransac.yaml' --sequence=$SEQUENCE --start=$START --end=$END --step=$STEP --chunk_size=$CHUNK_SIZE
