@@ -5,7 +5,7 @@ from scipy.sparse import find, csr_matrix
 from smutsia.point_cloud.normals import get_normals
 from smutsia.morphology.segmentation import quasi_flat_zones, z_nz_dist
 from smutsia.utils import subset_backprojection
-from smutsia.utils.graph import cloud_knn_graph, cloud_spherical_graph, merge_graphs
+from smutsia.graph import cloud_knn_graph, cloud_spherical_graph, merge_graphs
 
 
 def get_sub_cloud(xyz, subset):
@@ -110,7 +110,7 @@ def merge_labels(xyz, cc, cc_min_size=40, ransac_max_dist=0.15, ransac_max_it=10
     cc0 = cc == cc_ids[0]
 
     # copy cc0 to ground
-    ground = cc0.copy()
+    ground = np.copy(cc0)
 
     for i in sel_cc[1:]:
         if is_comparable(xyz, cc0, cc == i, max_dist=ransac_max_dist, max_it=ransac_max_it, inter_perc=inter_perc):
@@ -139,7 +139,7 @@ def hybrid_ground_detection(cloud,
     threshold: float
         threshold value for lambda flat zones
 
-    k_graph: int
+    knn_graph: int
         number of nearest neighbors to connect
 
     nb_layers: int
@@ -234,7 +234,8 @@ def connect_3d_graph(cloud, normals, wg):
 
     return wg.maximum(mini_graph)
 
-def sel_cc(cc, z, cc_min_size=20, max_cc=10):
+
+def select_cc(cc, z, cc_min_size=20, max_cc=10):
     cc_ids, cc_size = np.unique(cc, return_counts=True)
     iargsort = cc_size.argsort()[::-1]
     cc_size = cc_size[iargsort]
@@ -292,10 +293,11 @@ def iterative_hybrid(cloud,
     cc = cc0.copy()
     while ncc > max_cc and it < 10:
         print(it)
-        subset, backprop_t = sel_cc(cc, subcloud.xyz[:, 2], max_cc=max_cc)
+        subset, backprop_t = select_cc(cc, subcloud.xyz[:, 2], max_cc=max_cc)
         backprop = backprop[backprop_t]
         subcloud = get_sub_cloud(subcloud.xyz, subset)
-        ncc, cc = iterative_step(subcloud, knn_normals=knn_normal, spherical_graph=spherical_graph[backprop,:][:,backprop])
+        ncc, cc = iterative_step(subcloud, knn_normals=knn_normal,
+                                 spherical_graph=spherical_graph[backprop, :][:, backprop])
         it += 1
 
     cc_ground = np.unique(cc0[backprop])
