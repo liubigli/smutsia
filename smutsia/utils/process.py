@@ -41,9 +41,10 @@ def process_iterable(iterable, func, **kwargs):
 
     n_cpu = mp.cpu_count()
     print('nCPUs = ' + repr(n_cpu))
-    pool = mp.Pool(processes=n_cpu)
     if len(kwargs):
         func = partial(func, **kwargs)
-    result = pool.map(func, iterable)
+    # check this out https://pythonspeed.com/articles/python-multiprocessing/
+    with mp.get_context("spawn").Pool() as pool:
+        result = pool.map(func, iterable)
     pool.close()
     return result
