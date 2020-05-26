@@ -203,22 +203,52 @@ def draw_dart(im, points, proj, h_scanner, alpha0, nb_layers=64):
     while r >= 0:
         inverse_radius_index[r] = nb_layers + 1
         r = r - 1
-    im_r = sm.Image(im, "UINT16")
-    im_theta = sm.Image(im, "UINT16")
-    im_label = sm.Image(im, "UINT16")
-    # fill the image with radius and angular sector
-    for x in range(im.getWidth()):
-        for y in range(im.getHeight()):
-            deltax, deltay = x - x0, y - y0
-            if deltax == 0 and deltay == 0:
-                theta = 0
-            else:
-                theta = int(np.round(180+(180*np.arctan2(deltay, deltax))/(2*np.pi)))
-            r = int(np.sqrt(deltax*deltax+deltay*deltay))
 
-            value = min(255, inverse_radius_index[r])
-            im_r.setPixel(x, y, value)
-            im_theta.setPixel(x, y, theta)
+    im_label = sm.Image(im, "UINT16")
+
+    # Start faster version that generates dart
+    # convert the dict to a numpy array
+    max_r = max(inverse_radius_index.keys())
+
+    arr_inv_radius = np.zeros(max_r + 1)
+    for k in inverse_radius_index.keys():
+        arr_inv_radius[k] = inverse_radius_index[k]
+
+    # fill the image with radius and angular sector
+    nr, nc = smil_2_np(im).shape
+    np_rows = np.repeat(np.arange(nr), nc).reshape(nr, nc)
+    np_cols = np.repeat(np.arange(nc), nr).reshape((nr, nc), order='F')
+    deltax = np_cols - x0
+    deltay = np_rows - y0
+    np_theta = np.round(180+(180*np.arctan2(deltay, deltax))/(2*np.pi)).astype(int)
+    # smil and numpy have swapped axes
+    np_theta[y0, x0] = 0
+    # todo: check if we need to round before cast as int
+    np_r = np.sqrt(deltax**2 + deltay**2).astype(int)
+    np_r = arr_inv_radius[np_r]
+
+    # im_r = sm.Image(im, "UINT16")
+    # im_theta = sm.Image(im, "UINT16")
+    # for x in range(im.getWidth()):
+    #     for y in range(im.getHeight()):
+    #         deltax, deltay = x - x0, y - y0
+    #         if deltax == 0 and deltay == 0:
+    #             theta = 0
+    #         else:
+    #             theta = int(np.round(180+(180*np.arctan2(deltay, deltax))/(2*np.pi)))
+    #         r = int(np.sqrt(deltax*deltax+deltay*deltay))
+    #
+    #         value = min(255, inverse_radius_index[r])
+    #         im_r.setPixel(x, y, value)
+    #         im_theta.setPixel(x, y, theta)
+    #
+    # sm_r = smil_2_np(im_r)
+    # sm_theta = smil_2_np(im_theta)
+    # assert np.abs(sm_r.astype(float) - np_r.astype(float)).max() == 0
+    # assert np.abs(sm_theta.astype(float) - np_theta.astype(float)).max() == 0
+
+    im_r = np_2_smil(np_r)
+    im_theta = np_2_smil(np_theta)
 
     # label 2 partitions
     sm.labelWithoutFunctor2Partitions(im_r, im_theta, im_label, sm.CrossSE())
@@ -299,21 +329,21 @@ def dart_interp(points, proj, im, im_interp, nl):
     sm.compare(im_interp, "==", mymax + 1, 0, im_interp, im_interp)  # empty cells have max-value
     sm.compare(im, "==", mymax + 1, 0, im, im)  # mymax+1 -> 0 again
 
-    #         imObj = Image(im)
-    #         sub(im,imInterp,imObj)
+    im_obj = sm.Image(im)
+    sm.sub(im,im_interp, im_obj)
 
     sm.compare(im, "==", 0, im_interp, im, im_interp)  # only empty pixels are interpolated
 
     # return im_chess, imObj
-    return im_dart
+    return im_dart, im_obj
 
 
 def im_dart_interp(points, proj, im_max, nl):
     im_interp = sm.Image(im_max)
 
-    im_dart = dart_interp(points, proj, im_max, im_interp, nl)
+    im_dart, im_obj = dart_interp(points, proj, im_max, im_interp, nl)
 
-    return im_interp, im_dart
+    return im_interp, im_dart, im_obj
 
 
 def ground_detection_min_circle(params, points, proj, res_z, im_min, im_max):
@@ -364,22 +394,24 @@ def ground_detection_min_circle(params, points, proj, res_z, im_min, im_max):
     # put to zero all the non zero pixels in imGround
     sm.compare(im_tmp, ">", int(np.round(0.3 * res_z)), 0, im_ground, im_ground)
     # NEW:
-    if(proj.res_x > 1):
+    if proj.res_x > 1:
         # open with se_2x2
         se_2x2 = sm.StrElt(True, [0, 1, 2, 3])
-        sm.open(im_ground,im_ground,se_2x2)
+        sm.open(im_ground, im_ground, se_2x2)
 
     # OLD:
     # se_2x2 = sm.StrElt(True, [0, 1, 2, 3])
     # sm.open(im_ground, im_ground, se_2x2)
-
-    im_interp, im_dart = im_dart_interp(points, proj, im_max, nl)
+    im_interp, im_dart, im_obj = im_dart_interp(points, proj, im_max, nl)
 
     # Lambda flat zones
     im_label = sm.Image(im_interp, "UINT32")
     sm.lambdaLabel(im_interp, my_lambda, im_label, nl)
 
     label_with_measure(im_label, im_ground, im_ground, "max", nl)
+
+    # todo: parametrize the 3 value
+    sm.compare(im_obj, ">", 3, 0, im_ground, im_ground)
 
     # empty pixels set to 0 again
     sm.compare(im_max, "==", 0, 0, im_ground, im_ground)
@@ -437,7 +469,7 @@ def back_projection_ground(proj, points, res_z, im_min, im_ground, im_delta, del
     p_z = points[:, 2]
     z_min = np.percentile(p_z, percent)
     moved_z = p_z - z_min
-    moved_z = np.clip(moved_z, a_min=0, a_max = np.max(moved_z))
+    moved_z = np.clip(moved_z, a_min=0, a_max=np.max(moved_z))
     np_z = (np.floor(moved_z * res_z) + 1).astype(int)
 
     imtmp = sm.Image(im_min)
@@ -449,10 +481,10 @@ def back_projection_ground(proj, points, res_z, im_min, im_ground, im_delta, del
 
     delta = delta_ground * res_z
 
-    p_delta = back_projection(proj,points, im_delta)
+    p_delta = back_projection(proj, points, im_delta)
     p_delta = p_delta * delta
     # pixel labelled as ground (<mymax), and point not too far (deltaGround) from min & (predLabels != carId)
-    idx = ((p_mntz < mymax) & (p_dsmz <= p_delta) ) #& (predLabels != carId)
+    idx = ((p_mntz < mymax) & (p_dsmz <= p_delta))
 
     pred_labels = np.zeros_like(p_z, dtype=np.bool)
 
@@ -461,7 +493,7 @@ def back_projection_ground(proj, points, res_z, im_min, im_ground, im_delta, del
     return pred_labels
 
 
-def dart_ground_detection(cloud, threshold, delta_ground, delta_h_circle, res_x, res_y, res_z):
+def dart_ground_detection(cloud, threshold, delta_ground, delta_h_circle, res_x, res_y, res_z, debug_dir=''):
     """
     Parameters
     ----------
@@ -504,4 +536,16 @@ def dart_ground_detection(cloud, threshold, delta_ground, delta_h_circle, res_x,
 
     ground = back_projection_ground(proj=proj, points=points, res_z=res_z, im_min=im_min, im_ground=im_ground,
                                     im_delta=im_delta, delta_ground=delta_ground)
+
     return ground
+
+
+if __name__ == "__main__":
+    import os
+    from glob import glob
+    from smutsia.utils.semantickitti import load_pyntcloud
+    from definitions import SEMANTICKITTI_PATH
+    basedir = os.path.join(SEMANTICKITTI_PATH, '08', 'velodyne')
+    files = sorted(glob(os.path.join(basedir, '*.bin')))
+    pc = load_pyntcloud(files[0], add_label=True)
+    out = dart_ground_detection(cloud=pc, threshold=2, delta_ground=0.05, delta_h_circle=0.5, res_x=5, res_y=5, res_z=10)
