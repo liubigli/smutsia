@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score, jaccard_score, confusion_matrix
 
 
-def compute_scores(y_true, y_pred, threshold=0.0, print_info=False):
+def compute_scores(y_true, y_pred, threshold=0.0, print_info=False, sample_name=None):
     """Auxiliary Function that compute binary prediction scores.
 
     Parameters
@@ -14,6 +14,12 @@ def compute_scores(y_true, y_pred, threshold=0.0, print_info=False):
 
     threshold: float
         if greater than 0.0 this value will be used as threshold value for prediction.
+
+    print_info: bool
+        if true program flushes out obtained scores
+
+    sample_name: str
+        print out name of sample in flush out
     """
 
     if threshold > 0.0:
@@ -24,12 +30,12 @@ def compute_scores(y_true, y_pred, threshold=0.0, print_info=False):
     f1 = f1_score(y_true, y_pred)
     jaccard = jaccard_score(y_true, y_pred)
     if print_info:
-        print("Scores: \n"
+        print("Scores {}: \n"
               "F1 -> {},\n"
               "Recall -> {},\n"
               "Precision -> {},\n"
               "Accuracy -> {},\n"
-              "Jaccard -> {}.".format(f1, recall, precision, acc, jaccard))
+              "Jaccard -> {}.".format(sample_name, f1, recall, precision, acc, jaccard))
 
         print('------------------------------------------------')
 
