@@ -111,7 +111,7 @@ def plot_cloud(xyz,
     return plotter
 
 
-def color_bool_labeling(y_true, y_pred, pos_label=1):
+def color_bool_labeling(y_true, y_pred, pos_label=1, rgb=True):
     """
     Parameters
     ----------
@@ -123,12 +123,15 @@ def color_bool_labeling(y_true, y_pred, pos_label=1):
 
     pos_label: int
         Positive label value
+
+    rgb: bool
+        if True it returns rgb colors otherwise the points are coloured using grayscale color-bar.
     """
     if len(y_true) != len(y_pred):
         raise ValueError("y_true and y_pred don't have the same dimension.")
 
     base_shape = y_true.shape
-    colors = np.zeros(base_shape + (3, ), dtype=np.uint8)
+
     # true positives
     tp = np.logical_and(y_true == pos_label, y_pred == pos_label)
     # true negatives
@@ -138,10 +141,17 @@ def color_bool_labeling(y_true, y_pred, pos_label=1):
     # false negatives
     fn = np.logical_and(y_true == pos_label, y_pred == 0)
 
-    colors[tp] = [23, 156, 82]  # green
-    colors[tn] = [82, 65, 76]  # dark liver
-    colors[fp] = [255, 62, 48]  # red
-    colors[fn] = [23, 107, 239]  # blue
+    if rgb:
+        colors = np.zeros(base_shape + (3,), dtype=np.uint8)
+        colors[tp] = [23, 156, 82]  # green
+        colors[tn] = [82, 65, 76]  # dark liver
+        colors[fp] = [255, 62, 48]  # red
+        colors[fn] = [23, 107, 239]  # blue
+    else:
+        colors = np.zeros_like(y_true, dtype=np.uint8)
+        colors[tp] = 225
+        colors[fn] = 150
+        colors[fp] = 75
 
     return colors
 
