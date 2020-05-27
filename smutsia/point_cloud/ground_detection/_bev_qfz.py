@@ -67,6 +67,20 @@ def np_2_smil(np_img):
     return smil_im
 
 
+def find_min_z(zL, step, minPercent=5):
+    # TODO: Ask Bea the reason why this function. Apparently minPercent is not used
+    # histogram of zL, step = 0.2. minZ is set to the value over 0
+    # with at maximum 5% of points under it.
+
+    mybins = np.arange(np.amin(zL),np.amax(zL),step)
+    myhisto = np.histogram(zL,mybins)
+    mycount = myhisto[0]
+    idx = np.where(mycount > 100)
+
+    minZ = myhisto[1][idx[0][0]]
+
+    return minZ
+
 def project_img(projector, points, labels, res_z, percent=0.5):
     """
     Parameters
@@ -87,17 +101,26 @@ def project_img(projector, points, labels, res_z, percent=0.5):
         percentile to clip z values
     """
     z = points[:, 2]
-    min_z = np.percentile(z, percent)
+    # min_z = np.percentile(z, percent)
+    min_z = find_min_z(z, 0.2, 5)
     moved_z = z - min_z
     moved_z = np.clip(moved_z, a_min=0, a_max=moved_z.max())
-    np_z = (np.floor(moved_z * res_z) + 1).astype(int)
-    values = np.c_[np_z, np_z, np.ones_like(z), labels]
-    aggregators = ['min', 'max', 'sum', 'argmax0']
-    img = projector.project_points_values(points, values, aggregate_func=aggregators)
+    idx = np.where(z < min_z)
 
-    im_min = np_2_smil(img[:, :, 0])
+    np_z = (np.floor(moved_z * res_z) + 1).astype(int)
+    mymax = np.amax(np_z) + 1
+    np_z_min = np_z.copy()
+    np_z_min[idx] = mymax
+
+    values = np.c_[np_z_min, np_z, np.ones_like(z), labels]
+    aggregators = ['min', 'max', 'sum', 'argmax1']
+    img = projector.project_points_values(points, values, aggregate_func=aggregators)
+    np_min = img[:, :, 0]
+    np_min[np_min==mymax] = 1
+    im_min = np_2_smil(np_min)
     im_max = np_2_smil(img[:, :, 1])
-    im_acc = np_2_smil(img[:, :, 2])
+    im_acc = np_2_smil(np.clip(img[:, :, 2], 0, 255))
+
     im_class = np_2_smil(img[:, :, 3])
 
     sm.compare(im_acc, "==", 0, 0, im_class, im_class)
@@ -467,8 +490,11 @@ def back_projection_ground(proj, points, res_z, im_min, im_ground, im_delta, del
     """
     # Le calcul de npZ (echelle image) a deja ete fait. Voir si on peut le recuperer...
     p_z = points[:, 2]
-    z_min = np.percentile(p_z, percent)
-    moved_z = p_z - z_min
+    # z_min = np.percentile(p_z, percent)
+    min_z = find_min_z(p_z, 0.2, 5)
+
+    moved_z = p_z - min_z
+
     moved_z = np.clip(moved_z, a_min=0, a_max=np.max(moved_z))
     np_z = (np.floor(moved_z * res_z) + 1).astype(int)
 
