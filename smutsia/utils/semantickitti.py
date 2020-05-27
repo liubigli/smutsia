@@ -298,8 +298,18 @@ def load_pyntcloud(filepath, add_label=False, instances=False):
     else:
         filename = '.'.join(out)
 
+    dir_path = filepath.split('/')
+
+    sequence = None
+    try:
+        seq_idx = dir_path.index('sequences')
+        sequence = dir_path[seq_idx + 1]
+    except ValueError:
+        print("Sequence value not found in filepath")
+
     # adding to object attributes about filename and filepath
     cloud.filename = filename
     cloud.filepath = filepath
+    cloud.sequence = sequence
 
     return cloud
