@@ -1,6 +1,6 @@
-name: "lambda_qfz"
+name: "lambda_flat_zones"
 threshold: 2
-delta_ground: 0.2
+delta_ground: 0.05
 delta_h_circle: 0.5
 res_x: 5
 res_y: 5
