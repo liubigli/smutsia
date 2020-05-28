@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 from glob import glob
 from definitions import SEMANTICKITTI_PATH, SEMANTICKITTI_CONFIG
-from smutsia.utils import process_iterable, load_yaml
+from smutsia.utils import process_iterable, load_yaml, write_las
 from smutsia.utils.semantickitti import load_pyntcloud, SemanticKittiConfig
 from smutsia.point_cloud.ground_detection import *
 from smutsia.utils.scores import compute_scores, get_confusion_matrix, condense_confusion_matrix
@@ -17,6 +17,7 @@ personId = [30]
 groundLikeId = [40, 44, 48, 49, 60, 72]
 buildId = [50]
 movingLikeId = [252, 253, 254, 255, 256, 257, 258, 259]
+classes = ['other', 'vehicles', 'cycles', 'person', 'ground', 'building', 'moving-objects']
 
 mySelect = [[0], carLikeId, bikeLikeId, personId, groundLikeId, buildId, movingLikeId]
 selectedId = []
@@ -24,32 +25,6 @@ condensedId = []
 for elem in mySelect:
     selectedId.extend(elem)
     condensedId.append(elem)
-
-
-def write_las(points, file_name, labels=None, color=None):
-    import laspy
-
-    hdr = laspy.header.Header(file_version=1.4, point_format=2)
-
-    outfile = laspy.file.File(file_name, mode="w", header=hdr)
-    min_X, min_Y, min_Z = points.min(0)
-
-    outfile.header.offset = [min_X, min_Y, min_Z]
-    outfile.header.scale = [0.001, 0.001, 0.001]
-
-    outfile.x = points[:, 0]
-    outfile.y = points[:, 1]
-    outfile.z = points[:, 2]
-    # labels = np.ones(len(points))
-    if labels is not None:
-        outfile.user_data = labels
-
-    if color is not None:
-        outfile.red = color[:, 0].astype(np.uint8)
-        outfile.green = color[:, 1].astype(np.uint8)
-        outfile.blue = color[:, 2].astype(np.uint8)
-
-    outfile.close()
 
 
 def recursively_add_params(key, yaml_config, params):
@@ -133,6 +108,7 @@ def load_sequence(datapath, start, end, step, extension='bin'):
 
     return files[start:end:step]
 
+
 def aggregate_results(chunk_clouds, savedir, method_name):
     """
     Function that aggregates results obtained for each cloud
@@ -145,11 +121,12 @@ def aggregate_results(chunk_clouds, savedir, method_name):
 
             with open(os.path.join(savedir, filename + '.txt'), 'r') as f:
                 lines = f.readlines()
-                for l in lines:
-                    f1.write(l)
+                for line in lines:
+                    f1.write(line)
                 f.close()
             os.remove(os.path.join(savedir, filename + '.txt'))
     f1.close()
+
 
 def analyse_results(data, savedir, ground_id=40, classes=None):
     """
@@ -189,11 +166,11 @@ def analyse_results(data, savedir, ground_id=40, classes=None):
                   "Accuracy -> {},\n" \
                   "Jaccard -> {}.\n" \
                   "-----------------------\n".format(filename,
-                                          scores['f1'],
-                                          scores['recall'],
-                                          scores['precision'],
-                                          scores['acc'],
-                                          scores['jaccard'])
+                                                     scores['f1'],
+                                                     scores['recall'],
+                                                     scores['precision'],
+                                                     scores['acc'],
+                                                     scores['jaccard'])
     f.write(info_scores)
     f.close()
 
@@ -204,7 +181,7 @@ def analyse_results(data, savedir, ground_id=40, classes=None):
 
     if not isinstance(cloud, str):
         color = color_bool_labeling(y_true, y_pred)
-        write_las(cloud.xyz, file_name=os.path.join(savedir, filename + '.las'), color=color)
+        write_las(cloud.xyz, filepath=os.path.join(savedir, filename + '.las'), color=color)
 
 
 def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=1, chunk_size=-1):
@@ -232,35 +209,35 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
 
     step: int
 
-
     chunk_size: int
     """
+
+    # load model parameters
+    params, method_name = load_parameters(config_file)
+
     # initialise model variable
     if method == 'ransac':
         func = naive_ransac
-        pass
     elif method == 'hybrid':
         func = hybrid_ground_detection
-        pass
     elif method == 'qfz':
         func = dart_ground_detection
-        pass
+        # TODO: for the moment we repeat some definitions
+        params['savedir'] = savedir
+        params['classes'] = classes
+        params['condense_id'] = condensedId
+        params['select_id'] = selectedId
     elif method == 'csf':
         func = None
-        pass
     elif method == 'cnn':
         func = None
     else:
         raise ValueError("Method {} not known.".format(method))
 
-    # load model parameters
-    params, method_name = load_parameters(config_file)
-
     # initialise dataset variables
     if dataset == 'semantickitti':
         basedir = os.path.join(SEMANTICKITTI_PATH, sequence, 'velodyne')
         db_config = SemanticKittiConfig(SEMANTICKITTI_CONFIG)
-        classes = ['other', 'vehicles', 'cycles', 'person', 'ground', 'building', 'moving-objects']
         ground_id = 40
     else:
         raise ValueError("Dataset {} not known.".format(dataset))
@@ -322,16 +299,16 @@ if __name__ == "__main__":
     parser.add_argument("--chunk_size", default=-1, type=int, help="Size of the chunk to treat at each step")
 
     args = parser.parse_args()
-    dataset = args.dataset
+    ds = args.dataset
     gd_method = args.method
     params_path = args.params
     seq = args.sequence
     start_frame = args.start
     end_frame = args.end
     step_frames = args.step
-    chunk_size = args.chunk_size
+    chunksize = args.chunk_size
     print("Evaluating performance of method {}, over Dataset {}."
-          " Selected sequence {} and interval {}-{} each {}.".format(gd_method, dataset, seq,
+          " Selected sequence {} and interval {}-{} each {}.".format(gd_method, ds, seq,
                                                                      start_frame, end_frame, step_frames))
     params_file = ntpath.basename(params_path)
     out = params_file.split('.')[:-1]
@@ -340,15 +317,15 @@ if __name__ == "__main__":
     else:
         params_file = '.'.join(out)
 
-    savedir = os.path.join('/home/leonardo/Dev/github/smutsia/results/ground_detection/', gd_method, params_file)
-    if not os.path.exists(savedir):
-        os.makedirs(savedir)
+    sdir = os.path.join('/home/leonardo/Dev/github/smutsia/results/ground_detection/', gd_method, params_file)
+    if not os.path.exists(sdir):
+        os.makedirs(sdir)
 
-    main(dataset=dataset,
+    main(dataset=ds,
          method=gd_method,
          config_file=params_path,
-         savedir=savedir,
+         savedir=sdir,
          sequence=seq,
          start=start_frame,
          end=end_frame,
-         step=step_frames, chunk_size=chunk_size)
+         step=step_frames, chunk_size=chunksize)
