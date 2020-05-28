@@ -1,7 +1,9 @@
+import os
 import smilPython as sm
 import numpy as np
 from pyntcloud import PyntCloud
-from smutsia.point_cloud.projection import Projection
+from smutsia.point_cloud.projection import Projection, project_img, back_projection_ground
+from smutsia.utils.image import np_2_smil, smil_2_np, label_with_measure
 
 
 class LambdaGDParameters:
@@ -12,158 +14,19 @@ class LambdaGDParameters:
         self.nl = nl
 
 
-def smil_2_np(im):
-    """
-    Auxiliary function to convert a smil image 2 numpy image
-
-    Parameters
-    ----------
-    im: sm.Image
-        input smil image
-
-    Returns
-    -------
-    im_array: ndarray
-        numpy image
-    """
-    # get image content
-    im_array = im.getNumArray()
-    # swap rows with columns
-    im_array = np.swapaxes(im_array, 0, 1)
-    return im_array
-
-
-def np_2_smil(np_img):
-    """
-    Auxiliary function to convert a numpy img to smil image
-
-    Parameters
-    ----------
-    np_img: ndarray
-        input image
-
-    Returns
-    -------
-    smil_im: sm.Image
-        smil image
-    """
-    np_swap_img = np.swapaxes(np_img, 0, 1)
-
-    im_shape = np_swap_img.shape
-
-    if np_img.dtype == 'uint8':
-        smil_im = sm.Image(im_shape[0], im_shape[1])
-    elif np_img.dtype == 'uint16':
-        temp_img = sm.Image(im_shape[0], im_shape[1])
-        smil_im = sm.Image(temp_img, 'UINT16')
-    else:
-        Warning("Warning: {} copied to uint8".format(np_img.dtype))
-        smil_im = sm.Image(im_shape[0], im_shape[1])
-
-    imArray = smil_im.getNumArray()
-
-    imArray[:, :] = np_swap_img
-
-    return smil_im
-
-
-def find_min_z(zL, step, minPercent=5):
+def find_min_z(zL, step):
     # TODO: Ask Bea the reason why this function. Apparently minPercent is not used
     # histogram of zL, step = 0.2. minZ is set to the value over 0
     # with at maximum 5% of points under it.
 
-    mybins = np.arange(np.amin(zL),np.amax(zL),step)
-    myhisto = np.histogram(zL,mybins)
+    mybins = np.arange(np.amin(zL), np.amax(zL), step)
+    myhisto = np.histogram(zL, mybins)
     mycount = myhisto[0]
     idx = np.where(mycount > 100)
 
     minZ = myhisto[1][idx[0][0]]
 
     return minZ
-
-def project_img(projector, points, labels, res_z, percent=0.5):
-    """
-    Parameters
-    ----------
-    projector: Projection
-        Projection class
-
-    points: ndarray
-        input point cloud
-
-    labels: ndarray
-        array of labels
-
-    res_z: float
-        z resolution
-
-    percent: float
-        percentile to clip z values
-    """
-    z = points[:, 2]
-    # min_z = np.percentile(z, percent)
-    min_z = find_min_z(z, 0.2, 5)
-    moved_z = z - min_z
-    moved_z = np.clip(moved_z, a_min=0, a_max=moved_z.max())
-    idx = np.where(z < min_z)
-
-    np_z = (np.floor(moved_z * res_z) + 1).astype(int)
-    mymax = np.amax(np_z) + 1
-    np_z_min = np_z.copy()
-    np_z_min[idx] = mymax
-
-    values = np.c_[np_z_min, np_z, np.ones_like(z), labels]
-    aggregators = ['min', 'max', 'sum', 'argmax1']
-    img = projector.project_points_values(points, values, aggregate_func=aggregators)
-    np_min = img[:, :, 0]
-    np_min[np_min==mymax] = 1
-    im_min = np_2_smil(np_min)
-    im_max = np_2_smil(img[:, :, 1])
-    im_acc = np_2_smil(np.clip(img[:, :, 2], 0, 255))
-
-    im_class = np_2_smil(img[:, :, 3])
-
-    sm.compare(im_acc, "==", 0, 0, im_class, im_class)
-
-    return im_min, im_max, im_acc, im_class
-
-
-def label_with_measure(im, im_val, im_out, measure_str, nl=sm.Morpho.getDefaultSE()):
-    # ----------------------------------------
-    # Compute Blobs
-    # ----------------------------------------
-    im_label = sm.Image(im, "UINT16")
-    sm.label(im, im_label, nl)
-    blobs = sm.computeBlobs(im_label)
-
-    if measure_str == "mean":
-        meas_list = sm.measMeanVals(im_val, blobs)
-    elif measure_str == "max":
-        meas_list = sm.measMaxVals(im_val, blobs)
-    elif measure_str == "min":
-        meas_list = sm.measMinVals(im_val, blobs)
-    elif measure_str == "mode":
-        meas_list = sm.measModeVals(im_val, blobs)
-    elif measure_str == "median":
-        meas_list = sm.measMedianVals(im_val, blobs)
-    elif measure_str == "nb":
-        meas_list = sm.measNbVals(im_val, blobs)
-    elif measure_str == "nbLab":
-        meas_list = sm.measNbLabVals(im_val, blobs)
-    else:
-        raise ValueError("measure_str value {} not valid".format(measure_str))
-
-    my_lut = sm.Map_UINT16_UINT16()
-    if measure_str == "mean":
-        for lbl in blobs.keys():
-            my_lut[lbl] = int(meas_list[lbl][0])
-    else:  # min,max...
-        for lbl in blobs.keys():
-            my_lut[lbl] = int(meas_list[lbl])
-    imtmp16 = sm.Image(im_label)
-
-    sm.applyLookup(im_label, my_lut, imtmp16)
-    sm.copy(imtmp16, im_out)
 
 
 def draw_dart(im, points, proj, h_scanner, alpha0, nb_layers=64):
@@ -246,29 +109,9 @@ def draw_dart(im, points, proj, h_scanner, alpha0, nb_layers=64):
     np_theta = np.round(180+(180*np.arctan2(deltay, deltax))/(2*np.pi)).astype(int)
     # smil and numpy have swapped axes
     np_theta[y0, x0] = 0
-    # todo: check if we need to round before cast as int
+
     np_r = np.sqrt(deltax**2 + deltay**2).astype(int)
     np_r = arr_inv_radius[np_r]
-
-    # im_r = sm.Image(im, "UINT16")
-    # im_theta = sm.Image(im, "UINT16")
-    # for x in range(im.getWidth()):
-    #     for y in range(im.getHeight()):
-    #         deltax, deltay = x - x0, y - y0
-    #         if deltax == 0 and deltay == 0:
-    #             theta = 0
-    #         else:
-    #             theta = int(np.round(180+(180*np.arctan2(deltay, deltax))/(2*np.pi)))
-    #         r = int(np.sqrt(deltax*deltax+deltay*deltay))
-    #
-    #         value = min(255, inverse_radius_index[r])
-    #         im_r.setPixel(x, y, value)
-    #         im_theta.setPixel(x, y, theta)
-    #
-    # sm_r = smil_2_np(im_r)
-    # sm_theta = smil_2_np(im_theta)
-    # assert np.abs(sm_r.astype(float) - np_r.astype(float)).max() == 0
-    # assert np.abs(sm_theta.astype(float) - np_theta.astype(float)).max() == 0
 
     im_r = np_2_smil(np_r)
     im_theta = np_2_smil(np_theta)
@@ -353,7 +196,7 @@ def dart_interp(points, proj, im, im_interp, nl):
     sm.compare(im, "==", mymax + 1, 0, im, im)  # mymax+1 -> 0 again
 
     im_obj = sm.Image(im)
-    sm.sub(im,im_interp, im_obj)
+    sm.sub(im, im_interp, im_obj)
 
     sm.compare(im, "==", 0, im_interp, im, im_interp)  # only empty pixels are interpolated
 
@@ -445,81 +288,55 @@ def ground_detection_min_circle(params, points, proj, res_z, im_min, im_max):
     return im_ground, im_interp
 
 
-def back_projection(proj, points, imres, pred_labels=None):
-    np_labels = smil_2_np(imres)
-
-    lidx, i_img_mapping, j_img_mapping = proj.projector.project_point(points)
-
-    if pred_labels is None:
-        pred_labels = np.zeros(len(i_img_mapping))
-    for n in range(len(i_img_mapping)):
-        coor_i = i_img_mapping[n]
-        coor_j = j_img_mapping[n]
-
-        my_lab = np_labels[coor_i, coor_j]
-        if my_lab > 0:
-            pred_labels[n] = np_labels[coor_i, coor_j]
-
-    return pred_labels
-
-
-def back_projection_ground(proj, points, res_z, im_min, im_ground, im_delta, delta_ground, percent=0.5):
+def evaluate_2d_pred(im_class, im_pred, selected_id, condensed_id, classes, savedir, filename):
     """
+    Auxiliary function to evaluate prediction in 2D
+
     Parameters
     ----------
-    proj: Projection
+    im_class: ndarray
 
-    points: ndarray
+    im_pred: ndarray
 
-    res_z: float
+    selected_id: list
 
-    im_min: sm.Image
+    condensed_id: list
 
-    im_ground: sm.Image
+    classes: list
 
-    im_delta: sm.Image
+    savedir: str
 
-    delta_ground: float
-
-    percent: float
-
-    Returns
-    -------
-
-    pred_labels: ndarray
+    filename: str
     """
-    # Le calcul de npZ (echelle image) a deja ete fait. Voir si on peut le recuperer...
-    p_z = points[:, 2]
-    # z_min = np.percentile(p_z, percent)
-    min_z = find_min_z(p_z, 0.2, 5)
+    from smutsia.utils.scores import get_confusion_matrix, condense_confusion_matrix, normalize_confusion_matrix
+    from smutsia.utils.viz import plot_confusion_matrix
+    #  40: "road",  44: "parking",  48: "sidewalk",  49: "other-ground", 10: "car", 50: "building"
+    sm.compare(im_pred, ">", 0, 40, 0, im_pred)
 
-    moved_z = p_z - min_z
+    np_gt = smil_2_np(im_class)
+    np_pred = smil_2_np(im_pred)
+    conf_mat1, conf_mat_norm1 = get_confusion_matrix(np_gt.flat, np_pred.flat, selected_id)
 
-    moved_z = np.clip(moved_z, a_min=0, a_max=np.max(moved_z))
-    np_z = (np.floor(moved_z * res_z) + 1).astype(int)
+    conf_mat = condense_confusion_matrix(conf_mat1, selected_id, condensed_id)
+    conf_mat = conf_mat.astype(int)
+    conf_mat_norm = normalize_confusion_matrix(conf_mat)
 
-    imtmp = sm.Image(im_min)
-    mymax = im_min.getDataTypeMax()
-    # min on ground, 255 elsewhere
-    sm.compare(im_ground, ">", 0, im_min, mymax, imtmp)
-    p_mntz = back_projection(proj, points, imtmp)
-    p_dsmz = np_z - p_mntz
-
-    delta = delta_ground * res_z
-
-    p_delta = back_projection(proj, points, im_delta)
-    p_delta = p_delta * delta
-    # pixel labelled as ground (<mymax), and point not too far (deltaGround) from min & (predLabels != carId)
-    idx = ((p_mntz < mymax) & (p_dsmz <= p_delta))
-
-    pred_labels = np.zeros_like(p_z, dtype=np.bool)
-
-    pred_labels[idx] = True
-
-    return pred_labels
+    plot_confusion_matrix(conf_mat_norm, classes=classes, normalize=True,
+                          savefig=os.path.join(savedir, filename + '.eps'),
+                          title='Confusion Matrix ' + filename.upper())
 
 
-def dart_ground_detection(cloud, threshold, delta_ground, delta_h_circle, res_x, res_y, res_z, debug_dir=''):
+def dart_ground_detection(cloud,
+                          threshold,
+                          delta_ground,
+                          delta_h_circle,
+                          res_x,
+                          res_y,
+                          res_z,
+                          savedir='',
+                          select_id=None,
+                          condense_id=None,
+                          classes=None):
     """
     Parameters
     ----------
@@ -536,13 +353,29 @@ def dart_ground_detection(cloud, threshold, delta_ground, delta_h_circle, res_x,
     res_y: float
 
     res_z: float
+
+    savedir: str
+        path to which save plots of the method
+
+    select_id: list
+        id to use to compute 2D confusion matrix
+
+    condense_id: list
+        id to use to compute 2D confusion matrix
+
+    classes: list
+        list with corresponding names of classes
     """
     params = LambdaGDParameters(my_lambda=threshold, delta_ground=delta_ground, delta_h_circle=delta_h_circle)
 
     points = cloud.xyz
     labels = cloud.points.labels.values.astype(int)
     proj = Projection(proj_type='linear', res_x=res_x, res_y=res_y)
-    im_min, im_max, im_acc, im_class = project_img(proj, points=points, labels=labels, res_z=res_z)
+    # select the criteria to use to find min z
+    # z_min = np.percentile(p_z, percent)
+    # min_z = find_min_z(points[:, 2], 0.2, 5)
+    min_z = find_min_z(points[:, 2], 0.2)
+    im_min, im_max, im_acc, im_class = project_img(proj, points=points, labels=labels, res_z=res_z, min_z=min_z)
 
     im_ground, im_interp = ground_detection_min_circle(params=params,
                                                        points=points,
@@ -550,6 +383,32 @@ def dart_ground_detection(cloud, threshold, delta_ground, delta_h_circle, res_x,
                                                        res_z=res_z,
                                                        im_min=im_min,
                                                        im_max=im_max)
+
+    if len(savedir) > 0:
+        from smutsia.utils.viz import inspect_missclass
+        fn = ''
+        if hasattr(cloud, 'sequence'):
+            fn += cloud.sequence + '_'
+        if hasattr(cloud, 'filename'):
+            fn += cloud.filename + '_'
+        fn += '{}'
+
+        sm.write(im_min, os.path.join(savedir, fn.format('min.png')))
+        sm.write(im_max, os.path.join(savedir, fn.format('max.png')))
+        sm.write(im_acc, os.path.join(savedir, fn.format('acc.png')))
+        sm.write(im_class, os.path.join(savedir, fn.format('class.png')))
+        bike_ids = [11, 15, 31, 32]
+        car_ids = [10, 13, 18]
+        build_id = [50]
+        inspect_missclass(im_class, im_ground, bike_ids, im_max, im_min, savedir, fn.format('bikes'))
+        inspect_missclass(im_class, im_ground, car_ids, im_max, im_min, savedir, fn.format('cars'))
+        inspect_missclass(im_class, im_ground, build_id, im_max, im_min, savedir, fn.format('build'))
+
+        if condense_id is not None and select_id is not None:
+            # evaluate score on 2D image
+            evaluate_2d_pred(im_class, im_ground,
+                             selected_id=select_id, condensed_id=condense_id, classes=classes,
+                             savedir=savedir, filename=fn.format('2D'))
 
     im_label = sm.Image(im_min, "UINT16")
     sm.lambdaLabel(im_min, 1, im_label, params.nl)
@@ -561,17 +420,22 @@ def dart_ground_detection(cloud, threshold, delta_ground, delta_h_circle, res_x,
     sm.copy(im_ground2, im_ground)
 
     ground = back_projection_ground(proj=proj, points=points, res_z=res_z, im_min=im_min, im_ground=im_ground,
-                                    im_delta=im_delta, delta_ground=delta_ground)
+                                    im_delta=im_delta, delta_ground=delta_ground, min_z=min_z)
 
     return ground
 
 
 if __name__ == "__main__":
-    import os
     from glob import glob
     from smutsia.utils.semantickitti import load_pyntcloud
     from definitions import SEMANTICKITTI_PATH
     basedir = os.path.join(SEMANTICKITTI_PATH, '08', 'velodyne')
     files = sorted(glob(os.path.join(basedir, '*.bin')))
     pc = load_pyntcloud(files[0], add_label=True)
-    out = dart_ground_detection(cloud=pc, threshold=2, delta_ground=0.05, delta_h_circle=0.5, res_x=5, res_y=5, res_z=10)
+    out = dart_ground_detection(cloud=pc,
+                                threshold=2,
+                                delta_ground=0.05,
+                                delta_h_circle=0.5,
+                                res_x=5,
+                                res_y=5,
+                                res_z=10)
