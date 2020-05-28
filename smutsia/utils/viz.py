@@ -167,26 +167,29 @@ def inspect_missclass(im_class, im_pred, selected_id, im_max, im_min, savedir, f
     my_lut = sm.Map_UINT8_UINT8()
 
     for i in range(256):
-        my_lut[i]=0
+        my_lut[i] = 0
 
     imtmp = sm.Image(im_class)
 
-
     for elem in selected_id:
-        my_lut[elem]=elem
+        my_lut[elem] = elem
 
-    sm.applyLookup(im_class, my_lut, imtmp)# imtmp has bike label on bikes or 0 elsewhere
+    # imtmp has sel label on selected_id or 0 elsewhere
+    sm.applyLookup(im_class, my_lut, imtmp)
 
-    if(sm.maxVal(imtmp)>0):# if the image contains the class of interest
+    if sm.maxVal(imtmp) > 0:
+        # if the image contains the class of interest
         imtmp2 = sm.Image(imtmp)
         sm.compare(im_pred, ">", 0, 128, 0, imtmp2)
-        sm.compare(imtmp,"==",0,0,imtmp2,imtmp2)#only bike pixels
-        sm.compare(imtmp2,">",0,imtmp2,imtmp,imtmp2)
-        sm.write(imtmp2, os.path.join(savedir, filename + "_res.png")) # 128 ground and bike!
-        sm.dilate(imtmp,imtmp,sm.HexSE(2))
-        sm.compare(imtmp,">", 0, im_max, 0, imtmp2)
+        # only select_id pixels
+        sm.compare(imtmp, "==", 0, 0, imtmp2, imtmp2)
+        sm.compare(imtmp2, ">", 0, imtmp2, imtmp, imtmp2)
+        # 128 pred class and selected id!
+        sm.write(imtmp2, os.path.join(savedir, filename + "_res.png"))
+        sm.dilate(imtmp, imtmp, sm.HexSE(2))
+        sm.compare(imtmp, ">", 0, im_max, 0, imtmp2)
         sm.write(imtmp2, os.path.join(savedir, filename + "_max.png"))
-        sm.compare(imtmp,">", 0, im_min, 0, imtmp2)
+        sm.compare(imtmp, ">", 0, im_min, 0, imtmp2)
         sm.write(imtmp2, os.path.join(savedir, filename + "_min.png"))
         return 1
     else:
@@ -202,6 +205,30 @@ def plot_confusion_matrix(cm, classes,
     """
     This function prints and plots the confusion matrix.
     Normalization can be applied by setting `normalize=True`.
+
+    Parameters
+    ----------
+    cm: ndarray
+        input confusion matrix
+
+    classes: list
+        list of classes to use as xticks and yticks in the plot
+
+    normalize: bool
+        if true normalise confusion before plotting it
+
+    title: str
+        title in the plot
+
+    cmap: plt.cm
+        colormap to use
+
+    figsize: tuple
+        size of the figure
+
+    savefig: str
+        filename to give if you want to save the figure
+
     """
     plt.style.use('ggplot')
     font = {
