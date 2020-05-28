@@ -156,6 +156,43 @@ def color_bool_labeling(y_true, y_pred, pos_label=1, rgb=True):
     return colors
 
 
+def inspect_missclass(im_class, im_pred, selected_id, im_max, im_min, savedir, filename):
+    """128 ground and bike! other bikes with their label.  The rest 0. We
+    can evaluate which bike pixels are invaded by the ground.
+
+    In fact, it works for any class (not only bikes). selectedId is a parameter
+    """
+    import smilPython as sm
+    import os
+    my_lut = sm.Map_UINT8_UINT8()
+
+    for i in range(256):
+        my_lut[i]=0
+
+    imtmp = sm.Image(im_class)
+
+
+    for elem in selected_id:
+        my_lut[elem]=elem
+
+    sm.applyLookup(im_class, my_lut, imtmp)# imtmp has bike label on bikes or 0 elsewhere
+
+    if(sm.maxVal(imtmp)>0):# if the image contains the class of interest
+        imtmp2 = sm.Image(imtmp)
+        sm.compare(im_pred, ">", 0, 128, 0, imtmp2)
+        sm.compare(imtmp,"==",0,0,imtmp2,imtmp2)#only bike pixels
+        sm.compare(imtmp2,">",0,imtmp2,imtmp,imtmp2)
+        sm.write(imtmp2, os.path.join(savedir, filename + "_res.png")) # 128 ground and bike!
+        sm.dilate(imtmp,imtmp,sm.HexSE(2))
+        sm.compare(imtmp,">", 0, im_max, 0, imtmp2)
+        sm.write(imtmp2, os.path.join(savedir, filename + "_max.png"))
+        sm.compare(imtmp,">", 0, im_min, 0, imtmp2)
+        sm.write(imtmp2, os.path.join(savedir, filename + "_min.png"))
+        return 1
+    else:
+        return 0
+
+
 def plot_confusion_matrix(cm, classes,
                           normalize=False,
                           title='Confusion matrix',
