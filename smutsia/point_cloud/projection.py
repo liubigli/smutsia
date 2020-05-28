@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 import re
 from smutsia.utils.semantickitti import retrieve_layers
+import smilPython as sm
+from smutsia.utils.image import smil_2_np, np_2_smil
 
 
 class AbstractProjector(ABC):
@@ -41,9 +43,8 @@ class LinearProjector(AbstractProjector):
 
         height, width = self.get_image_size(points=points)
 
-        min_val = points.min(0)
-        xmin = min_val[0]
-        ymin = min_val[1]
+        xmin, ymin, _, _ = self.get_bounding_xy(points)
+
         x = points[:, 0] - xmin
         y = points[:, 1] - ymin
 
@@ -54,6 +55,41 @@ class LinearProjector(AbstractProjector):
 
         return lidx, i_img_mapping, j_img_mapping
 
+    @staticmethod
+    def get_bounding_xy(points):
+        """
+        Auxiliary method that return bounding box in the xy plane
+
+        Parameters
+        ----------
+        points: ndarray
+            input point cloud containing euclidean coordinates of the input point cloud
+
+        Returns
+        -------
+        min_X: float
+            min x-value
+        min_Y: float
+            min y-value
+        max_X: float
+            max x-value
+        max_Y: float
+            max y-value
+        """
+        max_val = points.max(0)
+        min_val = points.min(0)
+        # changes proposed by BEA
+        min_X = min_val[0]
+        min_Y = min_val[1]
+        max_X = max_val[0]
+        max_Y = max_val[1]
+        # inv_res_x = 1.0 / self.res_x
+        # inv_res_y = 1.0 / self.res_y
+        # min_X = np.floor(min_val[0] / inv_res_x) * inv_res_x
+        # min_Y = np.floor(min_val[1] / inv_res_y) * inv_res_y
+
+        return min_X, min_Y, max_X, max_Y
+
     def get_image_size(self, **kwargs):
         """
         Return the image size
@@ -61,10 +97,10 @@ class LinearProjector(AbstractProjector):
         :return:
         """
         points = kwargs['points']
-        max_val = points.max(0)
-        min_val = points.min(0)
-        height = np.ceil((max_val[0] - min_val[0]) * self.res_x).astype(int)
-        width = np.ceil((max_val[1] - min_val[1]) * self.res_y).astype(int)
+
+        min_X, min_Y, max_X, max_Y = self.get_bounding_xy(points)
+        height = np.ceil((max_X - min_X) * self.res_x).astype(int)
+        width = np.ceil((max_Y - min_Y) * self.res_y).astype(int)
 
         return height, width
 
@@ -145,8 +181,8 @@ class SphericalProjector(AbstractProjector):
         width: int
             width of the proj image
         """
-        fov_height = np.abs(self.fov_pitch[1] - self.fov_pitch[0])
-        fov_width = np.abs(self.fov_yaw[1] - self.fov_yaw[0])
+        # fov_height = np.abs(self.fov_pitch[1] - self.fov_pitch[0])
+        # fov_width = np.abs(self.fov_yaw[1] - self.fov_yaw[0])
         # height = np.ceil(fov_height * self.res_pitch).astype(int)
         # width = np.ceil(fov_width * self.res_yaw).astype(int)
         height = self.res_pitch
@@ -282,14 +318,22 @@ class Projection:
             'min': take the minimum value among all the values projected to the same pixel
             'mean': take the mean value among all the values projected to the same pixel
 
+        rot: ndarray
+            rigid transformation matrix to apply to input point cloud
 
+        b: ndarray
+            3 dimensional vector to shift input point cloud
         Returns
         -------
         proj_img: ndarray
             Image containing projected values
         """
+        # verify that rot is a 3x3 matrix
+        assert rot.shape[0] == 3
+        assert rot.shape[1] == 3
 
         rot_points = np.dot(rot, points.T).T + b
+
         nr, nc = self.projector.get_image_size(points=rot_points)
         if len(values.shape) < 2:
             channel_shape = 1
@@ -383,3 +427,125 @@ class Projection:
             binned_values_map = binned_values_map[:, :, 0]
 
         return binned_values_map
+
+
+def project_img(projector, points, labels, res_z, min_z):
+    """
+    Parameters
+    ----------
+    projector: Projection
+        Projection class
+
+    points: ndarray
+        input point cloud
+
+    labels: ndarray
+        array of labels
+
+    res_z: float
+        z resolution
+
+    min_z: float
+        minimum z value accepted
+    """
+    z = points[:, 2]
+    # min_z = np.percentile(z, percent)
+    # min_z = find_min_z(z, 0.2, 5)
+    moved_z = z - min_z
+    moved_z = np.clip(moved_z, a_min=0, a_max=moved_z.max())
+    idx = np.where(z < min_z)
+
+    np_z = (np.floor(moved_z * res_z) + 1).astype(int)
+    mymax = np.amax(np_z) + 1
+    np_z_min = np_z.copy()
+    np_z_min[idx] = mymax
+
+    values = np.c_[np_z_min, np_z, np.ones_like(z), labels]
+    aggregators = ['min', 'max', 'sum', 'argmax1']
+    img = projector.project_points_values(points, values, aggregate_func=aggregators)
+    np_min = img[:, :, 0]
+    np_min[np_min == mymax] = 1
+    im_min = np_2_smil(np_min)
+    im_max = np_2_smil(img[:, :, 1])
+    im_acc = np_2_smil(np.clip(img[:, :, 2], 0, 255))
+
+    im_class = np_2_smil(img[:, :, 3])
+
+    sm.compare(im_acc, "==", 0, 0, im_class, im_class)
+
+    return im_min, im_max, im_acc, im_class
+
+
+def back_projection(proj, points, imres, pred_labels=None):
+    np_labels = smil_2_np(imres)
+
+    lidx, i_img_mapping, j_img_mapping = proj.projector.project_point(points)
+
+    if pred_labels is None:
+        pred_labels = np.zeros(len(i_img_mapping))
+    for n in range(len(i_img_mapping)):
+        coor_i = i_img_mapping[n]
+        coor_j = j_img_mapping[n]
+
+        my_lab = np_labels[coor_i, coor_j]
+        if my_lab > 0:
+            pred_labels[n] = np_labels[coor_i, coor_j]
+
+    return pred_labels
+
+
+def back_projection_ground(proj, points, res_z, im_min, im_ground, im_delta, delta_ground, min_z):
+    """
+    Parameters
+    ----------
+    proj: Projection
+
+    points: ndarray
+
+    res_z: float
+
+    im_min: sm.Image
+
+    im_ground: sm.Image
+
+    im_delta: sm.Image
+
+    delta_ground: float
+
+    min_z: float
+
+    Returns
+    -------
+
+    pred_labels: ndarray
+    """
+    # Le calcul de npZ (echelle image) a deja ete fait. Voir si on peut le recuperer...
+    p_z = points[:, 2]
+    # z_min = np.percentile(p_z, percent)
+    # min_z = find_min_z(p_z, 0.2, 5)
+
+    moved_z = p_z - min_z
+
+    moved_z = np.clip(moved_z, a_min=0, a_max=np.max(moved_z))
+    np_z = (np.floor(moved_z * res_z) + 1).astype(int)
+
+    imtmp = sm.Image(im_min)
+    mymax = im_min.getDataTypeMax()
+    # min on ground, 255 elsewhere
+    sm.compare(im_ground, ">", 0, im_min, mymax, imtmp)
+    p_mntz = back_projection(proj, points, imtmp)
+    p_dsmz = np_z - p_mntz
+
+    delta = delta_ground * res_z
+
+    p_delta = back_projection(proj, points, im_delta)
+    p_delta = p_delta * delta
+    # pixel labelled as ground (<mymax), and point not too far (deltaGround) from min & (predLabels != carId)
+    idx = ((p_mntz < mymax) & (p_dsmz <= p_delta))
+
+    pred_labels = np.zeros_like(p_z, dtype=np.bool)
+
+    pred_labels[idx] = True
+
+    return pred_labels
+
