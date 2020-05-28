@@ -494,7 +494,7 @@ def back_projection(proj, points, imres, pred_labels=None):
     return pred_labels
 
 
-def back_projection_ground(proj, points, res_z, im_min, im_ground, im_delta, delta_ground, min_z):
+def back_projection_ground(proj, points, res_z, im_min, im_ground, delta_ground, min_z, im_delta=None):
     """
     Parameters
     ----------
@@ -508,11 +508,11 @@ def back_projection_ground(proj, points, res_z, im_min, im_ground, im_delta, del
 
     im_ground: sm.Image
 
-    im_delta: sm.Image
-
     delta_ground: float
 
     min_z: float
+
+    im_delta: sm.Image
 
     Returns
     -------
@@ -538,10 +538,13 @@ def back_projection_ground(proj, points, res_z, im_min, im_ground, im_delta, del
 
     delta = delta_ground * res_z
 
-    p_delta = back_projection(proj, points, im_delta)
-    p_delta = p_delta * delta
-    # pixel labelled as ground (<mymax), and point not too far (deltaGround) from min & (predLabels != carId)
-    idx = ((p_mntz < mymax) & (p_dsmz <= p_delta))
+    if im_delta is not None:
+        p_delta = back_projection(proj, points, im_delta)
+        p_delta = p_delta * delta
+        # pixel labelled as ground (<mymax), and point not too far (deltaGround) from min & (predLabels != carId)
+        idx = ((p_mntz < mymax) & (p_dsmz <= p_delta))
+    else:
+        idx = ((p_mntz < mymax) & (p_dsmz <= delta))
 
     pred_labels = np.zeros_like(p_z, dtype=np.bool)
 
