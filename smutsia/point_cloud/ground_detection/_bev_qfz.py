@@ -420,7 +420,7 @@ def dart_ground_detection(cloud,
     sm.copy(im_ground2, im_ground)
 
     ground = back_projection_ground(proj=proj, points=points, res_z=res_z, im_min=im_min, im_ground=im_ground,
-                                    im_delta=im_delta, delta_ground=delta_ground, min_z=min_z)
+                                    delta_ground=delta_ground, min_z=min_z, im_delta=im_delta)
 
     return ground
 

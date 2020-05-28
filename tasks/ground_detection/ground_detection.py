@@ -228,7 +228,7 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
         params['condense_id'] = condensedId
         params['select_id'] = selectedId
     elif method == 'csf':
-        func = None
+        func = cloth_simulation_filtering
     elif method == 'cnn':
         func = None
     else:

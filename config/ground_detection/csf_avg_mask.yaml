@@ -1,0 +1,7 @@
+name: "cloth_avg_mask"
+res_x: 1
+res_z: 1
+avg_mode: "mask"
+mass_mode: "one"
+rigidness: 3
+local_rigidness: 1
