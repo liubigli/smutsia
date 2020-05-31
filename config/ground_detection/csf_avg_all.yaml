@@ -1,6 +1,6 @@
 name: "cloth_avg_all"
 res_x: 1
-res_z: 1
+res_z: 10
 avg_mode: "all"
 mass_mode: "one"
 rigidness: 3
