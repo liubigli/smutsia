@@ -429,7 +429,7 @@ class Projection:
         return binned_values_map
 
 
-def project_img(projector, points, labels, res_z, min_z):
+def project_img(projector, points, labels, res_z, min_z, filter_outliers=False, return_as_smil=True, dtype=np.uint8):
     """
     Parameters
     ----------
@@ -447,37 +447,80 @@ def project_img(projector, points, labels, res_z, min_z):
 
     min_z: float
         minimum z value accepted
+
+    filter_outliers: bool
+        if true we filter out z outliers values
+
+    return_as_smil: bool
+        if True convert np image as smil images before return it
+
+    dtype: np.dtype
+        numpy type of output images
     """
     z = points[:, 2]
     # min_z = np.percentile(z, percent)
     # min_z = find_min_z(z, 0.2, 5)
     moved_z = z - min_z
     moved_z = np.clip(moved_z, a_min=0, a_max=moved_z.max())
-    idx = np.where(z < min_z)
-
     np_z = (np.floor(moved_z * res_z) + 1).astype(int)
     mymax = np.amax(np_z) + 1
-    np_z_min = np_z.copy()
-    np_z_min[idx] = mymax
+
+    if filter_outliers:
+        idx = np.where(z < min_z)
+        np_z_min = np_z.copy()
+        np_z_min[idx] = mymax
+    else:
+        np_z_min = np_z
 
     values = np.c_[np_z_min, np_z, np.ones_like(z), labels]
     aggregators = ['min', 'max', 'sum', 'argmax1']
     img = projector.project_points_values(points, values, aggregate_func=aggregators)
     np_min = img[:, :, 0]
-    np_min[np_min == mymax] = 1
-    im_min = np_2_smil(np_min)
-    im_max = np_2_smil(img[:, :, 1])
-    im_acc = np_2_smil(np.clip(img[:, :, 2], 0, 255))
 
-    im_class = np_2_smil(img[:, :, 3])
+    if filter_outliers:
+        np_min[np_min == mymax] = 1
 
-    sm.compare(im_acc, "==", 0, 0, im_class, im_class)
+    if return_as_smil:
+        im_min = np_2_smil(np_min)
+        im_max = np_2_smil(img[:, :, 1])
+        im_acc = np_2_smil(np.clip(img[:, :, 2], 0, 255))
+        im_class = np_2_smil(img[:, :, 3])
+        sm.compare(im_acc, "==", 0, 0, im_class, im_class)
+    else:
+        im_min = np_min.astype(dtype)
+        im_max = img[:, :, 1].astype(dtype)
+        im_acc = np.clip(img[:, :, 2], 0, 255)
+        im_acc = im_acc.astype(dtype)
+        im_class = img[:, :, 3].astype(dtype)
+        im_class[im_acc == 0] = 0
 
     return im_min, im_max, im_acc, im_class
 
 
 def back_projection(proj, points, imres, pred_labels=None):
-    np_labels = smil_2_np(imres)
+    """
+    Parameters
+    ----------
+    proj: Projection
+        projection instance
+
+    points: ndarray
+        input point cloud
+
+    imres: sm.Image or ndarray
+        image values to back project
+
+    pred_labels: prediction values to return
+
+    Returns
+    -------
+    pred_labels: ndarray
+        values to back project
+    """
+    if isinstance(imres, sm.BaseImage):
+        np_labels = smil_2_np(imres)
+    else:
+        np_labels = imres
 
     lidx, i_img_mapping, j_img_mapping = proj.projector.project_point(points)
 
@@ -521,18 +564,21 @@ def back_projection_ground(proj, points, res_z, im_min, im_ground, delta_ground,
     """
     # Le calcul de npZ (echelle image) a deja ete fait. Voir si on peut le recuperer...
     p_z = points[:, 2]
-    # z_min = np.percentile(p_z, percent)
-    # min_z = find_min_z(p_z, 0.2, 5)
 
     moved_z = p_z - min_z
 
     moved_z = np.clip(moved_z, a_min=0, a_max=np.max(moved_z))
     np_z = (np.floor(moved_z * res_z) + 1).astype(int)
+    if isinstance(im_min, sm.BaseImage):
+        imtmp = sm.Image(im_min)
+        mymax = im_min.getDataTypeMax()
+        # min on ground, 255 elsewhere
+        sm.compare(im_ground, ">", 0, im_min, mymax, imtmp)
+    else:
+        mymax = np.iinfo(im_min.dtype).max
+        imtmp = mymax * np.ones_like(im_min)
+        imtmp[im_ground > 0] = im_min[im_ground > 0]
 
-    imtmp = sm.Image(im_min)
-    mymax = im_min.getDataTypeMax()
-    # min on ground, 255 elsewhere
-    sm.compare(im_ground, ">", 0, im_min, mymax, imtmp)
     p_mntz = back_projection(proj, points, imtmp)
     p_dsmz = np_z - p_mntz
 
@@ -551,4 +597,3 @@ def back_projection_ground(proj, points, res_z, im_min, im_ground, delta_ground,
     pred_labels[idx] = True
 
     return pred_labels
-
