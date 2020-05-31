@@ -375,7 +375,8 @@ def dart_ground_detection(cloud,
     # z_min = np.percentile(p_z, percent)
     # min_z = find_min_z(points[:, 2], 0.2, 5)
     min_z = find_min_z(points[:, 2], 0.2)
-    im_min, im_max, im_acc, im_class = project_img(proj, points=points, labels=labels, res_z=res_z, min_z=min_z)
+    im_min, im_max, im_acc, im_class = project_img(proj, points=points, labels=labels, res_z=res_z, min_z=min_z,
+                                                   filter_outliers=True)
 
     im_ground, im_interp = ground_detection_min_circle(params=params,
                                                        points=points,
@@ -428,6 +429,7 @@ def dart_ground_detection(cloud,
 if __name__ == "__main__":
     from glob import glob
     from smutsia.utils.semantickitti import load_pyntcloud
+    from smutsia.utils.viz import plot_cloud
     from definitions import SEMANTICKITTI_PATH
     basedir = os.path.join(SEMANTICKITTI_PATH, '08', 'velodyne')
     files = sorted(glob(os.path.join(basedir, '*.bin')))
@@ -439,3 +441,6 @@ if __name__ == "__main__":
                                 res_x=5,
                                 res_y=5,
                                 res_z=10)
+
+    plot_cloud(pc.xyz, scalars=out, notebook=False)
+    print("END")
