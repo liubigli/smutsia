@@ -1,8 +1,6 @@
 import os
 import numpy as np
-import smilPython as sm
 from smutsia.point_cloud.projection import Projection, project_img, back_projection_ground
-from smutsia.utils.image import smil_2_np, np_2_smil
 
 
 class ClothParameters:
@@ -82,16 +80,16 @@ def average_blur(npIm, npMask, ngbList, avg_mode):
                 im1[deltax:w, deltay:h] = npIm[0:w-deltax, 0:h-deltay]
                 tmpMask[deltax:w, deltay:h] = npMask[0:w-deltax, 0:h-deltay]
             else:
-                deltay =- deltay
+                deltay = -deltay
                 im1[deltax:w, 0:h-deltay] = npIm[0:w-deltax, deltay:h]
                 tmpMask[deltax:w, 0:h-deltay] = npMask[0:w-deltax, deltay:h]
         else:
-            deltax =- deltax
+            deltax = -deltax
             if deltay >= 0:
                 im1[0:w-deltax, deltay:h] = npIm[deltax:w, 0:h-deltay]
                 tmpMask[0:w-deltax, deltay:h] = npMask[deltax:w, 0:h-deltay]
             else:
-                deltay =- deltay
+                deltay = -deltay
                 im1[0:w-deltax, 0:h-deltay] = npIm[deltax:w, deltay:h]
                 tmpMask[0:w-deltax, 0:h-deltay] = npMask[deltax:w, deltay:h]
 
@@ -118,14 +116,14 @@ def apply_internal_force(clothP, npMask, unmovable, updatedCloth):
         # myShape = updatedCloth.shape
         # internal_force = np.zeros(myShape)
         internal_force = avg_ngb - updatedCloth
-        internal_force = internal_force* clothP.local_rigidness
+        internal_force = internal_force * clothP.local_rigidness
 
         # Move movable pixels
-        idx = np.where(unmovable==0)  # ADDED BMI
+        idx = np.where(unmovable == 0)  # ADDED BMI
         updatedCloth[idx] = updatedCloth[idx] + internal_force[idx]
 
 
-def computeMaxMovement(cloth, updatedCloth, mask_image):
+def compute_max_movement(cloth, updatedCloth, mask_image):
     myShape = cloth.shape
     abs_diff = np.zeros(myShape)
     abs_diff[:, :] = abs(cloth[:, :] - updatedCloth[:, :])
@@ -149,9 +147,9 @@ def cloth_simulation(clothP, npMin, npMask):
     epsilon = clothP.epsilon
     max_iter = clothP.max_iter
 
-    iter = 0
+    iteration = 0
 
-    while max_movement > epsilon and iter < max_iter:
+    while max_movement > epsilon and iteration < max_iter:
 
         apply_gravity(clothP, prevCloth, cloth, unmovable, updatedCloth)
 
@@ -160,13 +158,13 @@ def cloth_simulation(clothP, npMin, npMask):
         apply_internal_force(clothP, npMask, unmovable, updatedCloth)
 
         #    applyFriction(unmovable(), cloth(), updatedCloth())
-        max_movement = computeMaxMovement(cloth, updatedCloth, npMask)
+        max_movement = compute_max_movement(cloth, updatedCloth, npMask)
         if clothP.debug:
             print("MAXMOV============max_mouv", round(max_movement, 2))
 
         prevCloth[:, :] = cloth[:, :]
         cloth[:, :] = updatedCloth[:, :]
-        iter += 1
+        iteration += 1
     #  postProcessing(genP,unmovable, npMin, npMask, cloth)
     return updatedCloth
 
@@ -180,16 +178,21 @@ def cloth_simulation_filtering(cloud, res_x, res_z, avg_mode, mass_mode, rigidne
     # select the criteria to use to find min z
     min_z = np.percentile(cloud.xyz[:, 2], 0.5)
 
-    im_min, im_max, im_acc, im_class = project_img(proj, points=points, labels=labels, res_z=res_z, min_z=min_z)
-    imMask = sm.Image(im_min)
-    sm.compare(im_min, "==", 255, 0, 255, imMask)
-    npMin = smil_2_np(im_min)
-    npMask = smil_2_np(imMask)
+    im_min, im_max, im_acc, im_class = project_img(proj, points=points, labels=labels, res_z=res_z, min_z=min_z,
+                                                   return_as_smil=False)
 
-    updatedCloth = cloth_simulation(clothP, npMin, npMask)
-    im_cloth = np_2_smil(updatedCloth)
-    im_ground = sm.Image(im_cloth)
-    sm.compare(im_cloth, ">", 0, 255, 0, im_ground)
+    # IMPORTANT LINE: no man's land -> 255
+    im_min[im_min == 0] = 255
+
+    im_mask = np.zeros_like(im_min)
+    im_mask[im_min != 255] = 255
+
+    im_cloth = cloth_simulation(clothP, im_min, im_mask)
+
+    im_cloth = im_cloth.astype(np.uint8)
+
+    im_ground = np.zeros_like(im_cloth, dtype=np.uint8)
+    im_ground[im_cloth > 0] = 255
 
     ground = back_projection_ground(proj=proj, points=points, res_z=res_z, im_min=im_cloth, im_ground=im_ground,
                                     delta_ground=clothP.deltaGround, min_z=min_z)
@@ -200,7 +203,12 @@ def cloth_simulation_filtering(cloud, res_x, res_z, avg_mode, mass_mode, rigidne
 if __name__ == "__main__":
     from glob import glob
     from smutsia.utils.semantickitti import load_pyntcloud
+    from smutsia.utils.viz import plot_cloud
     from definitions import SEMANTICKITTI_PATH
     basedir = os.path.join(SEMANTICKITTI_PATH, '08', 'velodyne')
     files = sorted(glob(os.path.join(basedir, '*.bin')))
     pc = load_pyntcloud(files[0], add_label=True)
+    g = cloth_simulation_filtering(pc, res_x=1, res_z=10, avg_mode='all', mass_mode='one', rigidness=3,
+                                   local_rigidness=1)
+    plot_cloud(pc.xyz, scalars=g, notebook=False)
+    print("End")
