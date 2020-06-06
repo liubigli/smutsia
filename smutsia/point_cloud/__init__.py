@@ -3,9 +3,12 @@ from __future__ import print_function
 from __future__ import division
 
 import numpy as np
+import pandas as pd
+from pyntcloud import PyntCloud
 
 __all__ = [
-    'filter_points'
+    'filter_points',
+    'get_sub_cloud'
 ]
 
 
@@ -15,7 +18,8 @@ def filter_points(points,
                   height_range=None,
                   intensity_range=None,
                   horizontal_fov=None,
-                  vertical_fov=None):
+                  vertical_fov=None,
+                  return_indices=False):
     """
     Returns filtered points based on side(y), forward(x) and height(z) range,
     horizontal and vertical field of view, and intensity.
@@ -27,11 +31,17 @@ def filter_points(points,
 
     side_range: tuple
 
-    fwd_range:
-    height_range:
-    intensity_range:
-    horizontal_fov:
-    vertical_fov:
+    fwd_range: tuple
+
+    height_range: tuple
+
+    intensity_range: tuple
+
+    horizontal_fov: tuple
+
+    vertical_fov: tuple
+
+    return_indices: bool
 
     Returns
     -------
@@ -74,5 +84,26 @@ def filter_points(points,
         mask = np.logical_and(mask, vertical_fov_mask)
 
     indices = np.argwhere(mask).flatten()
+    if return_indices:
+        return points[indices], indices
 
     return points[indices]
+
+
+def get_sub_cloud(xyz, subset):
+    """
+    Utils function that return sub point cloud
+    Parameters
+    ----------
+    xyz: ndarray
+        input point cloud
+
+    subset: ndarray
+        boolean array defining subset
+
+    Returns
+    -------
+    sub_cloud: PyntCloud
+        point_cloud made of points in subset
+    """
+    return PyntCloud(pd.DataFrame(xyz[subset], columns=['x', 'y', 'z']))
