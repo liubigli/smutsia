@@ -1,0 +1,19 @@
+sensor:
+    name: "HDL64"
+    proj_type: "layers" # projective
+    nb_layers: 64
+    fov_up: 85.0
+    fov_down: 115.0
+    res_yaw: 2048
+    res_pitch: 64
+    img_prop:
+      width: 2048
+      height: 64
+    img_means: #range,z,signal
+      - 12.12
+      - -1.04
+      - 0.21
+    img_stds: #range,z,signal
+      - 12.32
+      - 0.86
+      - 0.16
