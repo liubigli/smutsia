@@ -1,3 +1,5 @@
 name: "RANSAC"
+min_height: -4.0
+max_height: -1.0
 max_dist: 0.20
 max_iterations: 500
