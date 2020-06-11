@@ -1,14 +1,18 @@
 import os
 import ntpath
 import argparse
+import torch
 import numpy as np
 from glob import glob
+from sklearn.metrics import precision_recall_curve
 from definitions import SEMANTICKITTI_PATH, SEMANTICKITTI_CONFIG
 from smutsia.utils import process_iterable, load_yaml, write_las
 from smutsia.utils.semantickitti import load_pyntcloud, SemanticKittiConfig
+from smutsia.point_cloud.projection import Projection
+from smutsia.deep_learning.models.u_net import UNet
 from smutsia.point_cloud.ground_detection import *
 from smutsia.utils.scores import compute_scores, get_confusion_matrix, condense_confusion_matrix
-from smutsia.utils.viz import plot_confusion_matrix, color_bool_labeling
+from smutsia.utils.viz import plot_confusion_matrix, color_bool_labeling, plot_precision_recall_curve
 
 
 carLikeId = [10, 13, 18]
@@ -49,7 +53,7 @@ def recursively_add_params(key, yaml_config, params):
             recursively_add_params(k, yaml_config[key], params)
 
 
-def load_parameters(config_file):
+def load_parameters(config_file, recursive_load=True):
     """
     Utils function that read a yaml config files and generate paramter dict
 
@@ -64,9 +68,12 @@ def load_parameters(config_file):
         dictionary with parameters for method
     """
     yaml_config = load_yaml(config_file)
-    params = dict()
-    for k in yaml_config:
-        recursively_add_params(k, yaml_config, params)
+    if recursive_load:
+        params = dict()
+        for k in yaml_config:
+            recursively_add_params(k, yaml_config, params)
+    else:
+        params = yaml_config
 
     method_name = "all"
     # remove key name
@@ -128,7 +135,7 @@ def aggregate_results(chunk_clouds, savedir, method_name):
     f1.close()
 
 
-def analyse_results(data, savedir, ground_id=40, classes=None):
+def analyse_results(data, savedir, ground_id=40, classes=None, threshold=0.0):
     """
     Parameters
     ----------
@@ -156,7 +163,7 @@ def analyse_results(data, savedir, ground_id=40, classes=None):
             filename = cloud.sequence + '_' + filename
 
     # compute scores
-    scores = compute_scores(y_true, y_pred, print_info=True, sample_name=filename)
+    scores = compute_scores(y_true, y_pred, threshold=threshold, print_info=True, sample_name=filename)
     open_type = "w" if not isinstance(cloud, str) else "a"
     f = open(os.path.join(savedir, filename + '.txt'), open_type)
     info_scores = "Scores {}: \n" \
@@ -173,11 +180,16 @@ def analyse_results(data, savedir, ground_id=40, classes=None):
                                                      scores['jaccard'])
     f.write(info_scores)
     f.close()
+    pred = (y_pred > threshold) if threshold > 0.0 else y_pred
+    cm = get_confusion_matrix(labels, ground_id * pred, selectedId)
 
-    cm = get_confusion_matrix(labels, ground_id * y_pred, selectedId)
     cm = condense_confusion_matrix(cm[0], selectedId, condensedId)
-    plot_confusion_matrix(cm, classes=classes, normalize=True, savefig=os.path.join(savedir, filename + '.eps'),
+    plot_confusion_matrix(cm, classes=classes, normalize=True, savefig=os.path.join(savedir, filename + '_cm.eps'),
                           title='Confusion Matrix ' + filename.upper())
+    if threshold > 0.0:
+        prec, recall, thresholds = precision_recall_curve(y_true, y_pred)
+        plot_precision_recall_curve(prec, recall, xlim=[0.9, 1], ylim=[0.9, 1],
+                                    savefig=os.path.join(savedir, filename + '_prc.eps'), filename=filename)
 
     if not isinstance(cloud, str):
         color = color_bool_labeling(y_true, y_pred)
@@ -222,7 +234,6 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
         func = hybrid_ground_detection
     elif method == 'qfz':
         func = dart_ground_detection
-        # TODO: for the moment we repeat some definitions
         params['savedir'] = savedir
         params['classes'] = classes
         params['condense_id'] = condensedId
@@ -230,7 +241,24 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
     elif method == 'csf':
         func = cloth_simulation_filtering
     elif method == 'cnn':
-        func = None
+
+        func = cnn_detect_ground
+        config, _ = load_parameters(config_file, recursive_load=False)
+        # initialize projector
+        proj = Projection(**config['projection'])
+        # initialize model
+        config['model']['scale'] = tuple(config['model']['scale'])
+        model = UNet(**config['model'])
+        # load model weights
+        model.load_state_dict(torch.load(config['weights']))
+        model.eval()
+        # method parameters
+        img_means = np.array(config['img_means'])
+        img_std = np.array(config['img_stds'])
+
+        params = dict(model=model, proj=proj, img_means=img_means, img_std=img_std,
+                      add_normals=config['add_normals'], savedir=savedir, gpu=config['gpu'])
+
     else:
         raise ValueError("Method {} not known.".format(method))
 
@@ -255,6 +283,7 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
     y_pred = []
     # list containing all label values
     labels = []
+    threshold = 0.0 if method != 'cnn' else 0.5
 
     for i in range(0, n, chunk_size):
         print("Loading chunk in interval {}-{}".format(i, min(i + chunk_size, n)))
@@ -273,7 +302,7 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
         # analyse and plot results for each file in chunk
         process_iterable(zip(chunk_pred, chunk_gt, chunk_labels, clouds),
                          analyse_results,
-                         **{'savedir': savedir, 'classes': classes, 'ground_id': ground_id})
+                         **{'savedir': savedir, 'classes': classes, 'ground_id': ground_id, 'threshold': threshold})
         aggregate_results(clouds, savedir, method_name)
         labels += chunk_labels
         y_true += chunk_gt
@@ -284,7 +313,8 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
     labels = np.concatenate(labels)
     print("Compute total scores")
     # analyse and plot global results
-    analyse_results([y_pred, y_true, labels, method_name], savedir=savedir, ground_id=ground_id, classes=classes)
+    analyse_results([y_pred, y_true, labels, method_name], savedir=savedir, ground_id=ground_id, classes=classes,
+                    threshold=threshold)
 
 
 if __name__ == "__main__":
