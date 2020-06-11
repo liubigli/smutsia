@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 class UNet(nn.Module):
-    def __init__(self, n_channels, n_classes, bilinear=True, nb0_filters=32, kernel_size=3, max_pooling=2):
+    def __init__(self, n_channels, n_classes, n_filters=64, kernel_size=3, scale=2, bilinear=True):
         """
         Parameters
         ----------
@@ -12,59 +11,47 @@ class UNet(nn.Module):
 
         n_classes: int
 
-        bilinear: pool
-
-        nb0_filters: int
+        n_filters: int
 
         kernel_size: int or tuple
 
-        max_pooling: int or tuple
+        scale: int or tuple
+
+        bilinear: bool
         """
         super(UNet, self).__init__()
         self.n_channels = n_channels
         self.n_classes = n_classes
+        self.n_filters = n_filters
         self.bilinear = bilinear
-        self.downs = []
-        self.ups = []
         self.kernel_size = kernel_size
-        self.max_pooling = max_pooling
-        self.inc = DoubleConv(n_channels, nb0_filters, kernel_size=self.kernel_size)
+        self.scale = scale
+
         factor = 2 if bilinear else 1
 
-        for i in range(4):
-            if i == 3:
-                self.downs.append(
-                    Down(nb0_filters * (2 ** i), nb0_filters * (2**(i+1)) // factor, max_pool=self.max_pooling)
-                )
-                self.ups.append(
-                    Up(nb0_filters * 2, nb0_filters, bilinear, scale_factor=self.max_pooling)
-                )
-            else:
-                self.downs.append(
-                    Down(nb0_filters * (2 ** i), nb0_filters * (2**(i+1)), max_pool=self.max_pooling)
-                )
-                self.ups.append(
-                    Up(nb0_filters * (2 ** (4 - i)), nb0_filters * (2 ** (3 - i)) // factor, bilinear,
-                       scale_factor=self.max_pooling)
-                )
+        self.inc = DoubleConv(self.n_channels, self.n_filters)
+        self.down1 = Down(self.n_filters, 2 * self.n_filters, max_pool=self.scale)
+        self.down2 = Down(2 * self.n_filters, 4 * self.n_filters, max_pool=self.scale)
+        self.down3 = Down(4 * self.n_filters, 8 * self.n_filters, max_pool=self.scale)
+        self.down4 = Down(8 * self.n_filters, 16 * self.n_filters // factor, max_pool=self.scale)
 
-        self.outc = OutConv(nb0_filters, n_classes)
+        self.up1 = Up(16 * self.n_filters, (8 * self.n_filters) // factor, bilinear, scale_factor=self.scale)
+        self.up2 = Up(8 * self.n_filters, (4 * self.n_filters) // factor, bilinear, scale_factor=self.scale)
+        self.up3 = Up(4 * self.n_filters, (2 * self.n_filters) // factor, bilinear, scale_factor=self.scale)
+        self.up4 = Up(2 * self.n_filters, (self.n_filters), bilinear, scale_factor=scale)
+        self.outc = OutConv(self.n_filters, n_classes)
 
     def forward(self, x):
         x1 = self.inc(x)
-        down_x = [x1]
-        print(x1.shape)
-        # encoder
-        for i in range(4):
-            down_x.append(self.downs[i](down_x[i]))
-        x_up = down_x[-1]
-        # decoder
-        for i in range(4):
-            # we need to stack the out put of previus layter with the corresponding layer in downs
-            x_up = self.ups[i](x_up, down_x[3-i])
-
-        logits = self.outc(x_up)
-
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
+        logits = self.outc(x)
         return logits
 
 
