@@ -415,7 +415,7 @@ def get_normals(cloud, method='spherical', **kwargs):
 
     Parameters
     ----------
-    cloud: PyntCloud
+    cloud: PyntCloud, ndarray
         input point cloud
     method: optional {'spherical', 'pca'}
         method to use to estimate normals
@@ -428,6 +428,7 @@ def get_normals(cloud, method='spherical', **kwargs):
         estimated normals
     """
     from smutsia.point_cloud.projection import Projection
+
     if method.lower() == 'spherical':
         pitch = kwargs.get("pitch", [85.0 * np.pi / 180.0, 115.0 * np.pi / 180.0])
         yaw = kwargs.get("yaw", [0, 2 * np.pi])
@@ -435,10 +436,22 @@ def get_normals(cloud, method='spherical', **kwargs):
         res_yaw = kwargs.get("res_yaw", 2048)
         back_project = kwargs.get("back_proj", False)
 
-        # initialise projector
-        proj = Projection(proj_type='layers', res_yaw=2048, nb_layers=64)
+        proj = kwargs.get("proj", None)
+
+        if proj is None:
+            # initialise projector
+            proj = Projection(proj_type='layers', res_yaw=res_yaw, nb_layers=res_pitch)
+
+        if isinstance(cloud, PyntCloud):
+            xyz = cloud.xyz
+        elif isinstance(cloud, np.ndarray):
+            xyz = cloud
+        else:
+            raise TypeError("Cloud class can only be numpy.ndarray or Pyntcloud."
+                            "A {} has been passed".format(type(cloud)))
+
         # project rho values
-        rho_img = proj.project_points_values(cloud.xyz, np.linalg.norm(cloud.xyz, axis=1), aggregate_func='max')
+        rho_img = proj.project_points_values(xyz, np.linalg.norm(xyz, axis=1), aggregate_func='max')
         cl_rho = closing(rho_img, square(3))
         # fill zero pixels with value in the morphological closing of the image
         rho_img[rho_img == 0] = cl_rho[rho_img == 0]
@@ -456,12 +469,22 @@ def get_normals(cloud, method='spherical', **kwargs):
             return sp_normals
 
     elif method.lower() == 'pca':
+        if isinstance(cloud, np.ndarray):
+            import pandas as pd
+            cols = ['x', 'y', 'z']
+            pc = PyntCloud(pd.DataFrame(cloud[:, :3], columns=cols))
+        elif isinstance(cloud, PyntCloud):
+            pc = cloud
+        else:
+            raise TypeError("Cloud class can only be numpy.ndarray or Pyntcloud."
+                            "A {} has been passed".format(type(cloud)))
+
         k = kwargs.get("k", 10)
-        kneighs = cloud.get_neighbors(k=k)
-        cloud.add_scalar_field("normals", k_neighbors=kneighs)
-        nx = cloud.points['nx(' + str(k + 1) + ')']
-        ny = cloud.points['ny(' + str(k + 1) + ')']
-        nz = cloud.points['nz(' + str(k + 1) + ')']
+        kneighs = pc.get_neighbors(k=k)
+        pc.add_scalar_field("normals", k_neighbors=kneighs)
+        nx = pc.points['nx(' + str(k + 1) + ')']
+        ny = pc.points['ny(' + str(k + 1) + ')']
+        nz = pc.points['nz(' + str(k + 1) + ')']
         return np.c_[nx, ny, nz]
     else:
         raise ValueError("Parameter method accept only be 'spherical' or 'pca'. The passed value is {}.".format(method))
