@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class UNet(nn.Module):
     def __init__(self, n_channels, n_classes, n_filters=64, kernel_size=3, scale=2, bilinear=True):
         """
@@ -38,7 +39,7 @@ class UNet(nn.Module):
         self.up1 = Up(16 * self.n_filters, (8 * self.n_filters) // factor, bilinear, scale_factor=self.scale)
         self.up2 = Up(8 * self.n_filters, (4 * self.n_filters) // factor, bilinear, scale_factor=self.scale)
         self.up3 = Up(4 * self.n_filters, (2 * self.n_filters) // factor, bilinear, scale_factor=self.scale)
-        self.up4 = Up(2 * self.n_filters, (self.n_filters), bilinear, scale_factor=scale)
+        self.up4 = Up(2 * self.n_filters, self.n_filters, bilinear, scale_factor=scale)
         self.outc = OutConv(self.n_filters, n_classes)
 
     def forward(self, x):
@@ -129,7 +130,7 @@ class OutConv(nn.Module):
 
 
 if __name__ == "__main__":
-    u_net = UNet(n_channels=6, n_classes=1, max_pooling=(1, 2), bilinear=False)
+    u_net = UNet(n_channels=6, n_classes=1, scale=(1, 2), bilinear=False)
     xinput = torch.rand([5, 6, 64, 2048])
     out = u_net.forward(xinput)
     from smutsia.utils.torchsummary import summary
