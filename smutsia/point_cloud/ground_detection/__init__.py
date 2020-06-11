@@ -7,10 +7,12 @@ __all__ = [
     'naive_ransac',
     'hybrid_ground_detection',
     'dart_ground_detection',
-    'cloth_simulation_filtering'
+    'cloth_simulation_filtering',
+    'cnn_detect_ground'
 ]
 
 from ._ransac import naive_ransac
 from ._hybrid import hybrid_ground_detection
 from ._bev_qfz import dart_ground_detection
 from ._csf import cloth_simulation_filtering
+from ._cnn import cnn_detect_ground
