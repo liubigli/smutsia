@@ -335,7 +335,7 @@ class SemanticKittiLaserScan(LaserScan):
 
     def do_label_projection(self):
 
-        rho = np.linalg.norm(self.points,axis=1)
+        rho = np.linalg.norm(self.points, axis=1)
 
         aggr = ['min', 'argmin0', 'argmin0']
 
