@@ -271,3 +271,29 @@ def plot_confusion_matrix(cm, classes,
 
     # restore style to default settings
     mpl.rcParams.update(mpl.rcParamsDefault)
+
+
+def plot_precision_recall_curve(prec_scores, recall_scores, figsize=(12,12),
+                                xlim=None, ylim=None, title='', savefig='', filename=''):
+    if len(title) == 0:
+        title = 'Precision-Recall curve ' + filename
+
+    if xlim is None:
+        xlim = [0.75, 1.0]
+
+    if ylim is None:
+        ylim = [0.75, 1.0]
+    # In matplotlib < 1.5, plt.fill_between does not have a 'step' argument
+
+    plt.figure(figsize=figsize)
+    plt.style.use('ggplot')
+    plt.step(prec_scores, recall_scores, linewidth=2, color='tab:blue', where='post')
+    plt.xlabel('Recall', fontsize=22)
+    plt.ylabel('Precision', fontsize=22)
+    plt.ylim(ylim)
+    plt.xlim(xlim)
+    plt.title(title, fontsize=24)
+    # plt.legend(legend_list, loc=3, prop={'size': 18})
+    plt.tight_layout()
+    if len(savefig):
+        plt.savefig(savefig, dpi=90)
