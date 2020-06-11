@@ -48,9 +48,9 @@ class NotebookLoader(object):
         # load the notebook object
         nb = nbformat.read(path, as_version=4)
 
-        # create the module and add it to sys.modules
-        # if name in sys.modules:
-        #    return sys.modules[name]
+        # create the module and add it to sys.common
+        # if name in sys.common:
+        #    return sys.common[name]
         mod = types.ModuleType(fullname)
         mod.__file__ = path
         mod.__loader__ = self
