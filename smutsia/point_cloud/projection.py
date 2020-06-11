@@ -2,8 +2,6 @@ from abc import ABC, abstractmethod
 import numpy as np
 import re
 from smutsia.utils.semantickitti import retrieve_layers
-import smilPython as sm
-from smutsia.utils.image import smil_2_np, np_2_smil
 
 
 class AbstractProjector(ABC):
@@ -264,6 +262,7 @@ class Projection:
             number of layers in the scanner (to use in the layer projection)
         """
         # TODO: refactor parameters names
+        self.proj_type = proj_type
         self.res_x = res_x
         self.res_y = res_y
         self.res_pitch = res_pitch
@@ -273,8 +272,12 @@ class Projection:
         if fov_yaw is None:
             fov_yaw = [0.0, 2 * np.pi]
 
+        self.fov_yaw = fov_yaw
+
         if fov_pitch is None:
             fov_pitch = [0.0, np.pi]
+
+        self.fov_pitch = fov_pitch
 
         if proj_type == 'linear':
             self.projector = self.__initialize_linear_proj(res_x=res_x, res_y=res_y)
@@ -429,171 +432,179 @@ class Projection:
         return binned_values_map
 
 
-def project_img(projector, points, labels, res_z, min_z, filter_outliers=False, return_as_smil=True, dtype=np.uint8):
-    """
-    Parameters
-    ----------
-    projector: Projection
-        Projection class
+try:
+    import smilPython as sm
+    from smutsia.utils.image import smil_2_np, np_2_smil
 
-    points: ndarray
-        input point cloud
+    def project_img(projector, points, labels, res_z, min_z,
+                    filter_outliers=False, return_as_smil=True, dtype=np.uint8):
+        """
+        Parameters
+        ----------
+        projector: Projection
+            Projection class
 
-    labels: ndarray
-        array of labels
+        points: ndarray
+            input point cloud
 
-    res_z: float
-        z resolution
+        labels: ndarray
+            array of labels
 
-    min_z: float
-        minimum z value accepted
+        res_z: float
+            z resolution
 
-    filter_outliers: bool
-        if true we filter out z outliers values
+        min_z: float
+            minimum z value accepted
 
-    return_as_smil: bool
-        if True convert np image as smil images before return it
+        filter_outliers: bool
+            if true we filter out z outliers values
 
-    dtype: np.dtype
-        numpy type of output images
-    """
-    z = points[:, 2]
-    # min_z = np.percentile(z, percent)
-    # min_z = find_min_z(z, 0.2, 5)
-    moved_z = z - min_z
-    moved_z = np.clip(moved_z, a_min=0, a_max=moved_z.max())
-    np_z = (np.floor(moved_z * res_z) + 1).astype(int)
-    mymax = np.amax(np_z) + 1
+        return_as_smil: bool
+            if True convert np image as smil images before return it
 
-    if filter_outliers:
-        idx = np.where(z < min_z)
-        np_z_min = np_z.copy()
-        np_z_min[idx] = mymax
-    else:
-        np_z_min = np_z
+        dtype: np.dtype
+            numpy type of output images
+        """
+        z = points[:, 2]
+        # min_z = np.percentile(z, percent)
+        # min_z = find_min_z(z, 0.2, 5)
+        moved_z = z - min_z
+        moved_z = np.clip(moved_z, a_min=0, a_max=moved_z.max())
+        np_z = (np.floor(moved_z * res_z) + 1).astype(int)
+        mymax = np.amax(np_z) + 1
 
-    values = np.c_[np_z_min, np_z, np.ones_like(z), labels]
-    aggregators = ['min', 'max', 'sum', 'argmax1']
-    img = projector.project_points_values(points, values, aggregate_func=aggregators)
-    np_min = img[:, :, 0]
+        if filter_outliers:
+            idx = np.where(z < min_z)
+            np_z_min = np_z.copy()
+            np_z_min[idx] = mymax
+        else:
+            np_z_min = np_z
 
-    if filter_outliers:
-        np_min[np_min == mymax] = 1
+        values = np.c_[np_z_min, np_z, np.ones_like(z), labels]
+        aggregators = ['min', 'max', 'sum', 'argmax1']
+        img = projector.project_points_values(points, values, aggregate_func=aggregators)
+        np_min = img[:, :, 0]
 
-    if return_as_smil:
-        im_min = np_2_smil(np_min)
-        im_max = np_2_smil(img[:, :, 1])
-        im_acc = np_2_smil(np.clip(img[:, :, 2], 0, 255))
-        im_class = np_2_smil(img[:, :, 3])
-        sm.compare(im_acc, "==", 0, 0, im_class, im_class)
-    else:
-        im_min = np_min.astype(dtype)
-        im_max = img[:, :, 1].astype(dtype)
-        im_acc = np.clip(img[:, :, 2], 0, 255)
-        im_acc = im_acc.astype(dtype)
-        im_class = img[:, :, 3].astype(dtype)
-        im_class[im_acc == 0] = 0
+        if filter_outliers:
+            np_min[np_min == mymax] = 1
 
-    return im_min, im_max, im_acc, im_class
+        if return_as_smil:
+            im_min = np_2_smil(np_min)
+            im_max = np_2_smil(img[:, :, 1])
+            im_acc = np_2_smil(np.clip(img[:, :, 2], 0, 255))
+            im_class = np_2_smil(img[:, :, 3])
+            sm.compare(im_acc, "==", 0, 0, im_class, im_class)
+        else:
+            im_min = np_min.astype(dtype)
+            im_max = img[:, :, 1].astype(dtype)
+            im_acc = np.clip(img[:, :, 2], 0, 255)
+            im_acc = im_acc.astype(dtype)
+            im_class = img[:, :, 3].astype(dtype)
+            im_class[im_acc == 0] = 0
 
-
-def back_projection(proj, points, imres, pred_labels=None):
-    """
-    Parameters
-    ----------
-    proj: Projection
-        projection instance
-
-    points: ndarray
-        input point cloud
-
-    imres: sm.Image or ndarray
-        image values to back project
-
-    pred_labels: prediction values to return
-
-    Returns
-    -------
-    pred_labels: ndarray
-        values to back project
-    """
-    if isinstance(imres, sm.BaseImage):
-        np_labels = smil_2_np(imres)
-    else:
-        np_labels = imres
-
-    lidx, i_img_mapping, j_img_mapping = proj.projector.project_point(points)
-
-    if pred_labels is None:
-        pred_labels = np.zeros(len(i_img_mapping))
-    for n in range(len(i_img_mapping)):
-        coor_i = i_img_mapping[n]
-        coor_j = j_img_mapping[n]
-
-        my_lab = np_labels[coor_i, coor_j]
-        if my_lab > 0:
-            pred_labels[n] = np_labels[coor_i, coor_j]
-
-    return pred_labels
+        return im_min, im_max, im_acc, im_class
 
 
-def back_projection_ground(proj, points, res_z, im_min, im_ground, delta_ground, min_z, im_delta=None):
-    """
-    Parameters
-    ----------
-    proj: Projection
+    def back_projection(proj, points, imres, pred_labels=None):
+        """
+        Parameters
+        ----------
+        proj: Projection
+            projection instance
 
-    points: ndarray
+        points: ndarray
+            input point cloud
 
-    res_z: float
+        imres: sm.Image or ndarray
+            image values to back project
 
-    im_min: sm.Image
+        pred_labels: prediction values to return
 
-    im_ground: sm.Image
+        Returns
+        -------
+        pred_labels: ndarray
+            values to back project
+        """
+        if isinstance(imres, sm.BaseImage):
+            np_labels = smil_2_np(imres)
+        else:
+            np_labels = imres
 
-    delta_ground: float
+        lidx, i_img_mapping, j_img_mapping = proj.projector.project_point(points)
 
-    min_z: float
+        if pred_labels is None:
+            pred_labels = np.zeros(len(i_img_mapping))
+        for n in range(len(i_img_mapping)):
+            coor_i = i_img_mapping[n]
+            coor_j = j_img_mapping[n]
 
-    im_delta: sm.Image
+            my_lab = np_labels[coor_i, coor_j]
+            if my_lab > 0:
+                pred_labels[n] = np_labels[coor_i, coor_j]
 
-    Returns
-    -------
+        return pred_labels
 
-    pred_labels: ndarray
-    """
-    # Le calcul de npZ (echelle image) a deja ete fait. Voir si on peut le recuperer...
-    p_z = points[:, 2]
 
-    moved_z = p_z - min_z
+    def back_projection_ground(proj, points, res_z, im_min, im_ground, delta_ground, min_z, im_delta=None):
+        """
+        Parameters
+        ----------
+        proj: Projection
 
-    moved_z = np.clip(moved_z, a_min=0, a_max=np.max(moved_z))
-    np_z = (np.floor(moved_z * res_z) + 1).astype(int)
-    if isinstance(im_min, sm.BaseImage):
-        imtmp = sm.Image(im_min)
-        mymax = im_min.getDataTypeMax()
-        # min on ground, 255 elsewhere
-        sm.compare(im_ground, ">", 0, im_min, mymax, imtmp)
-    else:
-        mymax = np.iinfo(im_min.dtype).max
-        imtmp = mymax * np.ones_like(im_min)
-        imtmp[im_ground > 0] = im_min[im_ground > 0]
+        points: ndarray
 
-    p_mntz = back_projection(proj, points, imtmp)
-    p_dsmz = np_z - p_mntz
+        res_z: float
 
-    delta = delta_ground * res_z
+        im_min: sm.Image
 
-    if im_delta is not None:
-        p_delta = back_projection(proj, points, im_delta)
-        p_delta = p_delta * delta
-        # pixel labelled as ground (<mymax), and point not too far (deltaGround) from min & (predLabels != carId)
-        idx = ((p_mntz < mymax) & (p_dsmz <= p_delta))
-    else:
-        idx = ((p_mntz < mymax) & (p_dsmz <= delta))
+        im_ground: sm.Image
 
-    pred_labels = np.zeros_like(p_z, dtype=np.bool)
+        delta_ground: float
 
-    pred_labels[idx] = True
+        min_z: float
 
-    return pred_labels
+        im_delta: sm.Image
+
+        Returns
+        -------
+
+        pred_labels: ndarray
+        """
+        # Le calcul de npZ (echelle image) a deja ete fait. Voir si on peut le recuperer...
+        p_z = points[:, 2]
+
+        moved_z = p_z - min_z
+
+        moved_z = np.clip(moved_z, a_min=0, a_max=np.max(moved_z))
+        np_z = (np.floor(moved_z * res_z) + 1).astype(int)
+        if isinstance(im_min, sm.BaseImage):
+            imtmp = sm.Image(im_min)
+            mymax = im_min.getDataTypeMax()
+            # min on ground, 255 elsewhere
+            sm.compare(im_ground, ">", 0, im_min, mymax, imtmp)
+        else:
+            mymax = np.iinfo(im_min.dtype).max
+            imtmp = mymax * np.ones_like(im_min)
+            imtmp[im_ground > 0] = im_min[im_ground > 0]
+
+        p_mntz = back_projection(proj, points, imtmp)
+        p_dsmz = np_z - p_mntz
+
+        delta = delta_ground * res_z
+
+        if im_delta is not None:
+            p_delta = back_projection(proj, points, im_delta)
+            p_delta = p_delta * delta
+            # pixel labelled as ground (<mymax), and point not too far (deltaGround) from min & (predLabels != carId)
+            idx = ((p_mntz < mymax) & (p_dsmz <= p_delta))
+        else:
+            idx = ((p_mntz < mymax) & (p_dsmz <= delta))
+
+        pred_labels = np.zeros_like(p_z, dtype=np.bool)
+
+        pred_labels[idx] = True
+
+        return pred_labels
+
+except ImportError as e:
+    pass

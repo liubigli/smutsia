@@ -5,7 +5,6 @@ from __future__ import absolute_import
 import time
 import numpy as np
 from numpy import matlib
-import smilPython as sm
 from scipy.sparse import csr_matrix, find
 from matplotlib import pyplot as plt
 from sklearn.feature_extraction.image import _make_edges_3d
@@ -597,95 +596,100 @@ def stick_two_images(img1, img2, num_overlapping=0, direction='H'):
         raise ValueError('Direction of merging not known')
 
 
-def smil_2_np(im):
-    """
-    Auxiliary function to convert a smil image 2 numpy image
+try:
+    import smilPython as sm
+    def smil_2_np(im):
+        """
+        Auxiliary function to convert a smil image 2 numpy image
 
-    Parameters
-    ----------
-    im: sm.Image
-        input smil image
+        Parameters
+        ----------
+        im: sm.Image
+            input smil image
 
-    Returns
-    -------
-    im_array: ndarray
-        numpy image
-    """
-    # get image content
-    im_array = im.getNumArray()
-    # swap rows with columns
-    im_array = np.swapaxes(im_array, 0, 1)
-    return im_array
-
-
-def np_2_smil(np_img):
-    """
-    Auxiliary function to convert a numpy img to smil image
-
-    Parameters
-    ----------
-    np_img: ndarray
-        input image
-
-    Returns
-    -------
-    smil_im: sm.Image
-        smil image
-    """
-    np_swap_img = np.swapaxes(np_img, 0, 1)
-
-    im_shape = np_swap_img.shape
-
-    if np_img.dtype == 'uint8':
-        smil_im = sm.Image(im_shape[0], im_shape[1])
-    elif np_img.dtype == 'uint16':
-        temp_img = sm.Image(im_shape[0], im_shape[1])
-        smil_im = sm.Image(temp_img, 'UINT16')
-    else:
-        Warning("Warning: {} copied to uint8".format(np_img.dtype))
-        smil_im = sm.Image(im_shape[0], im_shape[1])
-
-    imArray = smil_im.getNumArray()
-
-    imArray[:, :] = np_swap_img
-
-    return smil_im
+        Returns
+        -------
+        im_array: ndarray
+            numpy image
+        """
+        # get image content
+        im_array = im.getNumArray()
+        # swap rows with columns
+        im_array = np.swapaxes(im_array, 0, 1)
+        return im_array
 
 
-def label_with_measure(im, im_val, im_out, measure_str, nl=sm.Morpho.getDefaultSE()):
-    # ----------------------------------------
-    # Compute Blobs
-    # ----------------------------------------
-    im_label = sm.Image(im, "UINT16")
-    sm.label(im, im_label, nl)
-    blobs = sm.computeBlobs(im_label)
+    def np_2_smil(np_img):
+        """
+        Auxiliary function to convert a numpy img to smil image
 
-    if measure_str == "mean":
-        meas_list = sm.measMeanVals(im_val, blobs)
-    elif measure_str == "max":
-        meas_list = sm.measMaxVals(im_val, blobs)
-    elif measure_str == "min":
-        meas_list = sm.measMinVals(im_val, blobs)
-    elif measure_str == "mode":
-        meas_list = sm.measModeVals(im_val, blobs)
-    elif measure_str == "median":
-        meas_list = sm.measMedianVals(im_val, blobs)
-    elif measure_str == "nb":
-        meas_list = sm.measNbVals(im_val, blobs)
-    elif measure_str == "nbLab":
-        meas_list = sm.measNbLabVals(im_val, blobs)
-    else:
-        raise ValueError("measure_str value {} not valid".format(measure_str))
+        Parameters
+        ----------
+        np_img: ndarray
+            input image
 
-    my_lut = sm.Map_UINT16_UINT16()
-    if measure_str == "mean":
-        for lbl in blobs.keys():
-            my_lut[lbl] = int(meas_list[lbl][0])
-    else:  # min,max...
-        for lbl in blobs.keys():
-            my_lut[lbl] = int(meas_list[lbl])
-    imtmp16 = sm.Image(im_label)
+        Returns
+        -------
+        smil_im: sm.Image
+            smil image
+        """
+        np_swap_img = np.swapaxes(np_img, 0, 1)
 
-    sm.applyLookup(im_label, my_lut, imtmp16)
-    sm.copy(imtmp16, im_out)
+        im_shape = np_swap_img.shape
+
+        if np_img.dtype == 'uint8':
+            smil_im = sm.Image(im_shape[0], im_shape[1])
+        elif np_img.dtype == 'uint16':
+            temp_img = sm.Image(im_shape[0], im_shape[1])
+            smil_im = sm.Image(temp_img, 'UINT16')
+        else:
+            Warning("Warning: {} copied to uint8".format(np_img.dtype))
+            smil_im = sm.Image(im_shape[0], im_shape[1])
+
+        imArray = smil_im.getNumArray()
+
+        imArray[:, :] = np_swap_img
+
+        return smil_im
+
+
+    def label_with_measure(im, im_val, im_out, measure_str, nl=sm.Morpho.getDefaultSE()):
+        # ----------------------------------------
+        # Compute Blobs
+        # ----------------------------------------
+        im_label = sm.Image(im, "UINT16")
+        sm.label(im, im_label, nl)
+        blobs = sm.computeBlobs(im_label)
+
+        if measure_str == "mean":
+            meas_list = sm.measMeanVals(im_val, blobs)
+        elif measure_str == "max":
+            meas_list = sm.measMaxVals(im_val, blobs)
+        elif measure_str == "min":
+            meas_list = sm.measMinVals(im_val, blobs)
+        elif measure_str == "mode":
+            meas_list = sm.measModeVals(im_val, blobs)
+        elif measure_str == "median":
+            meas_list = sm.measMedianVals(im_val, blobs)
+        elif measure_str == "nb":
+            meas_list = sm.measNbVals(im_val, blobs)
+        elif measure_str == "nbLab":
+            meas_list = sm.measNbLabVals(im_val, blobs)
+        else:
+            raise ValueError("measure_str value {} not valid".format(measure_str))
+
+        my_lut = sm.Map_UINT16_UINT16()
+        if measure_str == "mean":
+            for lbl in blobs.keys():
+                my_lut[lbl] = int(meas_list[lbl][0])
+        else:  # min,max...
+            for lbl in blobs.keys():
+                my_lut[lbl] = int(meas_list[lbl])
+        imtmp16 = sm.Image(im_label)
+
+        sm.applyLookup(im_label, my_lut, imtmp16)
+        sm.copy(imtmp16, im_out)
+
+except ImportError as e:
+    pass
 
