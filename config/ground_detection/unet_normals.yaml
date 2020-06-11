@@ -19,5 +19,5 @@ model:
   scale:
     - 1
     - 2
-weights: '/home/leonardo/Dev/github/smutsia/ckpt/ground_detection/best_model.pth'
+weights: '/home/leonardo/Dev/github/smutsia/ckpt/ground_detection/unet_normals_best.pth'
 gpu: 0
