@@ -20,15 +20,17 @@ bikeLikeId = [11, 15, 31, 32]
 personId = [30]
 groundLikeId = [40, 44, 48, 49, 60, 72]
 buildId = [50]
+discard = [1, 16, 20, 51, 52, 70, 71, 80, 81, 99]
 movingLikeId = [252, 253, 254, 255, 256, 257, 258, 259]
-classes = ['other', 'vehicles', 'cycles', 'person', 'ground', 'building', 'moving-objects']
-
-mySelect = [[0], carLikeId, bikeLikeId, personId, groundLikeId, buildId, movingLikeId]
+classes = ['other', 'vehicles', 'cycles', 'person', 'ground', 'building', 'moving-objects', 'discard']
+mySelect = [[0], carLikeId, bikeLikeId, personId, groundLikeId, buildId, movingLikeId, discard]
 selectedId = []
 condensedId = []
 for elem in mySelect:
     selectedId.extend(elem)
     condensedId.append(elem)
+
+selectedId.sort()
 
 
 def recursively_add_params(key, yaml_config, params):
@@ -61,6 +63,9 @@ def load_parameters(config_file, recursive_load=True):
     ----------
     config_file: str
         path to config file
+
+    recursive_load: bool
+        if true the inner keys are recursively loaded
 
     Returns
     -------
@@ -130,8 +135,8 @@ def aggregate_results(chunk_clouds, savedir, method_name):
                 lines = f.readlines()
                 for line in lines:
                     f1.write(line)
-                f.close()
-            os.remove(os.path.join(savedir, filename + '.txt'))
+            f.close()
+            # os.remove(os.path.join(savedir, filename + '.txt'))
     f1.close()
 
 
@@ -151,10 +156,11 @@ def analyse_results(data, savedir, ground_id=40, classes=None, threshold=0.0):
     classes: list
         list of class names to use as x-ticks and y-ticks in confusion matrix plot
     """
-    y_pred = data[0]
-    y_true = data[1]
+    y_pred = data[0].astype(int)
+    y_true = data[1].astype(int)
     labels = data[2]
-    cloud = data[3]
+    not_other = data[3]
+    cloud = data[4]
     if isinstance(cloud, str):
         filename = cloud
     else:
@@ -163,7 +169,18 @@ def analyse_results(data, savedir, ground_id=40, classes=None, threshold=0.0):
             filename = cloud.sequence + '_' + filename
 
     # compute scores
-    scores = compute_scores(y_true, y_pred, threshold=threshold, print_info=True, sample_name=filename)
+    scores = compute_scores(y_true=y_true[not_other], y_pred=y_pred[not_other], threshold=threshold, print_info=True,
+                            sample_name=filename)
+
+    pred = (y_pred > threshold) if threshold > 0.0 else y_pred
+    cm = get_confusion_matrix(labels, ground_id * pred, selectedId)
+
+    # cm = condense_confusion_matrix(cm[0], selectedId, condensedId)
+    cm = condense_confusion_matrix(cm[0], selectedId, condensedId)
+
+    plot_confusion_matrix(cm, classes=classes, normalize=True, savefig=os.path.join(savedir, filename + '_cm.eps'),
+                          title='Confusion Matrix ' + filename.upper())
+
     open_type = "w" if not isinstance(cloud, str) else "a"
     f = open(os.path.join(savedir, filename + '.txt'), open_type)
     info_scores = "Scores {}: \n" \
@@ -179,13 +196,11 @@ def analyse_results(data, savedir, ground_id=40, classes=None, threshold=0.0):
                                                      scores['acc'],
                                                      scores['jaccard'])
     f.write(info_scores)
+    f.write('---BEGIN CONF MATRIX---\n')
+    f.write(str(cm.astype(int)))
+    f.write('\n-----END CONF MATRIX---\n')
     f.close()
-    pred = (y_pred > threshold) if threshold > 0.0 else y_pred
-    cm = get_confusion_matrix(labels, ground_id * pred, selectedId)
 
-    cm = condense_confusion_matrix(cm[0], selectedId, condensedId)
-    plot_confusion_matrix(cm, classes=classes, normalize=True, savefig=os.path.join(savedir, filename + '_cm.eps'),
-                          title='Confusion Matrix ' + filename.upper())
     if threshold > 0.0:
         prec, recall, thresholds = precision_recall_curve(y_true, y_pred)
         plot_precision_recall_curve(prec, recall, xlim=[0.9, 1], ylim=[0.9, 1],
@@ -283,6 +298,8 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
     y_pred = []
     # list containing all label values
     labels = []
+    # list containing ids for not ground labels
+    not_ground = []
     threshold = 0.0 if method != 'cnn' else 0.5
 
     for i in range(0, n, chunk_size):
@@ -298,23 +315,28 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
 
         # call func and predict ground
         chunk_pred = process_iterable(clouds, func, **params)
+        not_other_idx_batch = [lbl != 0 for lbl in chunk_labels]
         print("Analysing predictions for chunk {}-{}".format(i, min(i + chunk_size, n)))
         # analyse and plot results for each file in chunk
-        process_iterable(zip(chunk_pred, chunk_gt, chunk_labels, clouds),
+        
+        process_iterable(zip(chunk_pred, chunk_gt, chunk_labels, not_other_idx_batch, clouds),
                          analyse_results,
                          **{'savedir': savedir, 'classes': classes, 'ground_id': ground_id, 'threshold': threshold})
         aggregate_results(clouds, savedir, method_name)
         labels += chunk_labels
         y_true += chunk_gt
         y_pred += chunk_pred
+        not_ground += not_other_idx_batch
 
     y_true = np.concatenate(y_true)
     y_pred = np.concatenate(y_pred)
     labels = np.concatenate(labels)
+    not_ground = np.concatenate(not_ground)
+
     print("Compute total scores")
     # analyse and plot global results
-    analyse_results([y_pred, y_true, labels, method_name], savedir=savedir, ground_id=ground_id, classes=classes,
-                    threshold=threshold)
+    analyse_results([y_pred, y_true, labels, not_ground, method_name], savedir=savedir, ground_id=ground_id,
+                    classes=classes, threshold=threshold)
 
 
 if __name__ == "__main__":
