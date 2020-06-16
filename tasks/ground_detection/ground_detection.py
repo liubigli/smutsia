@@ -156,7 +156,7 @@ def analyse_results(data, savedir, ground_id=40, classes=None, threshold=0.0):
     classes: list
         list of class names to use as x-ticks and y-ticks in confusion matrix plot
     """
-    y_pred = data[0].astype(int)
+    y_pred = data[0]
     y_true = data[1].astype(int)
     labels = data[2]
     not_other = data[3]
@@ -167,6 +167,7 @@ def analyse_results(data, savedir, ground_id=40, classes=None, threshold=0.0):
         filename = cloud.filename
         if hasattr(cloud, 'sequence'):
             filename = cloud.sequence + '_' + filename
+    assert y_true.shape == y_pred.shape
 
     # compute scores
     scores = compute_scores(y_true=y_true[not_other], y_pred=y_pred[not_other], threshold=threshold, print_info=True,
@@ -207,7 +208,7 @@ def analyse_results(data, savedir, ground_id=40, classes=None, threshold=0.0):
                                     savefig=os.path.join(savedir, filename + '_prc.eps'), filename=filename)
 
     if not isinstance(cloud, str):
-        color = color_bool_labeling(y_true, y_pred)
+        color = color_bool_labeling(y_true, pred)
         write_las(cloud.xyz, filepath=os.path.join(savedir, filename + '.las'), color=color)
 
 
@@ -265,6 +266,7 @@ def main(dataset, method, config_file, savedir, sequence, start=0, end=-1, step=
         config['model']['scale'] = tuple(config['model']['scale'])
         model = UNet(**config['model'])
         # load model weights
+        print(config['weights'])
         model.load_state_dict(torch.load(config['weights']))
         model.eval()
         # method parameters
