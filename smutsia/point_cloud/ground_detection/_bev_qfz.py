@@ -428,12 +428,16 @@ def dart_ground_detection(cloud,
 
 if __name__ == "__main__":
     from glob import glob
-    from smutsia.utils.semantickitti import load_pyntcloud
+    from smutsia.utils.semantickitti import load_pyntcloud, SemanticKittiConfig
     from smutsia.utils.viz import plot_cloud
-    from definitions import SEMANTICKITTI_PATH
+    from definitions import SEMANTICKITTI_PATH, SEMANTICKITTI_CONFIG
+    skconfig = SemanticKittiConfig(SEMANTICKITTI_CONFIG)
     basedir = os.path.join(SEMANTICKITTI_PATH, '08', 'velodyne')
     files = sorted(glob(os.path.join(basedir, '*.bin')))
-    pc = load_pyntcloud(files[0], add_label=True)
+    idx = 3721
+    pc = load_pyntcloud(files[idx], add_label=True)
+    labels = pc.points['labels'].values
+    plot_cloud(pc.xyz, skconfig.label2color[labels], rgb=True, notebook=False)
     out = dart_ground_detection(cloud=pc,
                                 threshold=2,
                                 delta_ground=0.05,
