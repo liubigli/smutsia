@@ -26,7 +26,10 @@ class UNet(nn.Module):
         self.n_filters = n_filters
         self.bilinear = bilinear
         self.kernel_size = kernel_size
-        self.scale = scale
+        if isinstance(scale, list):
+            self.scale = tuple(scale)
+        else:
+            self.scale = scale
 
         factor = 2 if bilinear else 1
 
@@ -39,7 +42,7 @@ class UNet(nn.Module):
         self.up1 = Up(16 * self.n_filters, (8 * self.n_filters) // factor, bilinear, scale_factor=self.scale)
         self.up2 = Up(8 * self.n_filters, (4 * self.n_filters) // factor, bilinear, scale_factor=self.scale)
         self.up3 = Up(4 * self.n_filters, (2 * self.n_filters) // factor, bilinear, scale_factor=self.scale)
-        self.up4 = Up(2 * self.n_filters, self.n_filters, bilinear, scale_factor=scale)
+        self.up4 = Up(2 * self.n_filters, self.n_filters, bilinear, scale_factor=self.scale)
         self.outc = OutConv(self.n_filters, n_classes)
 
     def forward(self, x):
