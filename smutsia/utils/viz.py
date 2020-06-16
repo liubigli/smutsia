@@ -65,7 +65,7 @@ def plot_cloud(xyz,
     poly = pv.PolyData(xyz)
     plotter.add_mesh(poly, color=color, scalars=scalars, cmap=cmap, rgb=rgb, point_size=point_size)
 
-    if add_scalarbar:
+    if add_scalarbar and not rgb:
         plotter.add_scalar_bar()
 
     if graph is not None:
@@ -273,7 +273,7 @@ def plot_confusion_matrix(cm, classes,
     mpl.rcParams.update(mpl.rcParamsDefault)
 
 
-def plot_precision_recall_curve(prec_scores, recall_scores, figsize=(12,12),
+def plot_precision_recall_curve(prec_scores, recall_scores, figsize=(12, 12),
                                 xlim=None, ylim=None, title='', savefig='', filename=''):
     if len(title) == 0:
         title = 'Precision-Recall curve ' + filename
