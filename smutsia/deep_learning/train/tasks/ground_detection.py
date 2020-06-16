@@ -1,10 +1,9 @@
-import yaml
+import argparse
 import time
 import torch
 import torch.optim as optim
 import torch.nn as nn
 from torch.nn import functional as F
-
 import numpy as np
 from tqdm import tqdm
 
@@ -18,6 +17,8 @@ from matplotlib import pyplot as plt
 
 # todo: parametrize this variable
 PARAM_FILE = '/home/leonardo/Dev/github/smutsia/config/ground_detection/cnn.yaml'
+
+MODELS = {'unet': UNet}
 
 
 def eval_net(net, valid_loader, device, criterion):
@@ -51,7 +52,7 @@ def eval_net(net, valid_loader, device, criterion):
     return tot_acc / n_val, tot_iou / n_val,  losses.avg
 
 
-def train_epoch(train_loader, net, criterion, optimizer, epoch, scheduler, epochs, gpu):
+def train_epoch(train_loader, net, criterion, optimizer, epoch, scheduler, epochs, gpu, device):
     """
     Parameters
     ----------
@@ -80,7 +81,7 @@ def train_epoch(train_loader, net, criterion, optimizer, epoch, scheduler, epoch
     net.train()
 
     end = time.time()
-    with tqdm(total=parser.get_train_size(), desc=f'Epoch {epoch + 1}/{epochs}') as pbar:
+    with tqdm(total=len(train_loader), desc=f'Epoch {epoch + 1}/{epochs}') as pbar:
         for i, data in enumerate(train_loader):
             ## measure data loading time
             data_time.update(time.time() - end)
@@ -145,11 +146,8 @@ def train_epoch(train_loader, net, criterion, optimizer, epoch, scheduler, epoch
 
 
 def train(net, parser, device, epochs, lr=0.001):
-    # device = torch.device('cpu')
-    # net.to(device=device)
-    summary(net, input_size=(6, 64, 2048), device=device)
-    global_step = 0
-    batch_size = parser.batch_size
+
+    summary(net, input_size=(net.n_channels, 64, 2048), device=device)
     optimizer = optim.RMSprop(net.parameters(), lr=lr, weight_decay=1e-8, momentum=0.9)
     # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience=2)
     scheduler = optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.0001,max_lr=0.01, gamma=0.99994, mode='triangular')
@@ -162,8 +160,8 @@ def train(net, parser, device, epochs, lr=0.001):
     val_loss = []
     best_val_acc = 0.0
     for epoch in range(epochs):
-        acc, iou, loss = train_epoch(parser.get_train_set(), net=net, criterion=criterion, optimizer=optimizer, epoch=epoch,
-                    scheduler=scheduler, epochs=epochs, gpu=True)
+        acc, iou, loss = train_epoch(parser.get_train_set(), net=net, criterion=criterion, optimizer=optimizer,
+                                     epoch=epoch, scheduler=scheduler, epochs=epochs, gpu=True, device=device)
 
         train_acc.append(acc)
         train_iou.append(iou)
@@ -208,24 +206,33 @@ def train(net, parser, device, epochs, lr=0.001):
     plt.title("Losses")
     plt.show()
 
+def parse_config_file(config_file):
+    from smutsia.utils import load_yaml
+    config = load_yaml(config_file)
+    model_args = config['model']
+    model_name = model_args.pop('name').lower()
+    net = MODELS[model_name](**model_args)
+    add_normals = config['add_normals']
+    sensor = config['sensor']
 
-if __name__ == "__main__":
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model = UNet(n_channels=6, n_classes=1, n_filters=8, scale=(1, 2))
+    return net, add_normals, sensor
+
+
+
+def main(config_file, data_path, sk_config_file, gpu=0):
+    device = torch.device("cuda:"+str(gpu) if torch.cuda.is_available() else "cpu")
+    model, add_normals, sensor = parse_config_file(config_file)
     model.to(device=device)
     train_seq = [i for i in range(8)]
     valid_seq = [i for i in range(8)]
     test_seq = None
-    with open(PARAM_FILE, 'r') as f:
-        config = yaml.safe_load(f)
 
-    sensor = config['sensor']
-    parser = SKParser(root=SEMANTICKITTI_PATH,
+    parser = SKParser(root=data_path,
                       train_sequences=train_seq,
                       valid_sequences=valid_seq,
                       test_sequences=test_seq,
-                      add_normals=True,
-                      sk_config_path=SEMANTICKITTI_CONFIG,
+                      add_normals=add_normals,
+                      sk_config_path=sk_config_file,
                       sensor=sensor,
                       batch_size=8,
                       workers=8,
@@ -238,3 +245,19 @@ if __name__ == "__main__":
                       detect_ground=True)
 
     train(model, parser, device=device, epochs=10)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, help='path to config file')
+    parser.add_argument('--datapath', type=str, default=SEMANTICKITTI_PATH, help='path to dataset')
+    parser.add_argument('--sk_config', type=str, default=SEMANTICKITTI_CONFIG, help='path to semantic kitti config')
+    parser.add_argument('--gpu', type=int, default=0, help='Id of gpu to use')
+
+    args = parser.parse_args()
+
+    config_file = args.config
+    datapath = args.datapath
+    sk_config = args.sk_config
+    gpu = args.gpu
+
+    main(config_file, datapath, sk_config, gpu)
