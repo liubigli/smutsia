@@ -172,8 +172,8 @@ if __name__ == "__main__":
     from smutsia.deep_learning.models.u_net import UNet
     from definitions import SEMANTICKITTI_PATH
 
-    weights = '/home/leonardo/Dev/github/smutsia/ckpt/ground_detection/best_model.pth'
-    net = UNet(n_channels=6, n_classes=1, n_filters=8, scale=(1, 2))
+    weights = '/home/leonardo/Dev/github/smutsia/ckpt/ground_detection/unet_best.pth'
+    net = UNet(n_channels=3, n_classes=1, n_filters=8, scale=(1, 2))
     net.load_state_dict(torch.load(weights))
     net.eval()
 
@@ -188,6 +188,7 @@ if __name__ == "__main__":
 
     pc = load_pyntcloud(files[0], add_label=True)
 
-    out = cnn_detect_ground(pc, net, layers_proj, img_means=par_img_means, img_std=par_img_std, add_normals=True, savedir='.')
+    out = cnn_detect_ground(pc, net, layers_proj, img_means=par_img_means, img_std=par_img_std, add_normals=False,
+                            savedir='.')
     plot_cloud(pc.xyz, scalars=out, notebook=False)
     print("END")
