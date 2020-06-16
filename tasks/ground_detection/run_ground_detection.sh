@@ -11,4 +11,5 @@ python ground_detection.py --dataset=$DATASET --method='hybrid' --params=$PARAMD
 python ground_detection.py --dataset=$DATASET --method='ransac' --params=$PARAMDIR'ransac.yaml' --sequence=$SEQUENCE --start=$START --end=$END --step=$STEP --chunk_size=$CHUNK_SIZE
 python ground_detection.py --dataset=$DATASET --method='csf' --params=$PARAMDIR'csf_avg_all.yaml' --sequence=$SEQUENCE --start=$START --end=$END --step=$STEP --chunk_size=$CHUNK_SIZE
 python ground_detection.py --dataset=$DATASET --method='csf' --params=$PARAMDIR'csf_avg_mask.yaml' --sequence=$SEQUENCE --start=$START --end=$END --step=$STEP --chunk_size=$CHUNK_SIZE
-python ground_detection.py --dataset=$DATASET --method='cnn' --params=$PARAMDIR'cnn.yaml' --sequence=$SEQUENCE --start=$START --end=$END --step=$STEP --chunk_size=$CHUNK_SIZE
+python ground_detection.py --dataset=$DATASET --method='cnn' --params=$PARAMDIR'ground_detection_unet.yaml' --sequence=$SEQUENCE --start=$START --end=$END --step=$STEP --chunk_size=$CHUNK_SIZE
+python ground_detection.py --dataset=$DATASET --method='cnn' --params=$PARAMDIR'ground_detection_unet_normals.yaml' --sequence=$SEQUENCE --start=$START --end=$END --step=$STEP --chunk_size=$CHUNK_SIZE
