@@ -1,4 +1,4 @@
-name: "unet_gt_normals"
+name: "unet_gt"
 projection:
   proj_type: 'layers'
   res_yaw: 2048
@@ -11,13 +11,13 @@ img_stds: #range,z,signal
   - 12.32
   - 0.86
   - 0.16
-add_normals: True
+add_normals: False
 model:
-  n_channels: 6
+  n_channels: 3
   n_classes: 1
   n_filters: 8
   scale:
     - 1
     - 2
-weights: '/home/leonardo/Dev/github/smutsia/ckpt/ground_detection/best_model.pth'
+weights: '/home/leonardo/Dev/github/smutsia/ckpt/ground_detection/unet_best.pth'
 gpu: 0
