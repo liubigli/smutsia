@@ -5,6 +5,14 @@ from scipy.sparse.csgraph import connected_components
 from smutsia.point_cloud.projection import Projection
 from smutsia.utils import merge_graphs, set_distance, cartesian_product
 
+__all__ = [
+    'minimum_spanning_tree',
+    'cloud_knn_graph',
+    'cloud_spherical_graph',
+    'cloud_3d_graph'
+]
+
+from ._minimum_spanning_tree import minimum_spanning_tree
 
 def cloud_knn_graph(xyz, k=10, metric=None):
     """
