@@ -90,10 +90,11 @@ def torch_rri_representations(xyz, k, batch=None):
     k: int
         number of nn to keep into account to extract knn_representations
     """
+    eps = 1e-15
     n_points = xyz.size(0)
     rho = xyz.norm(dim=1)
     xyz_n = torch.div(xyz, rho.reshape(-1, 1))
-    edge_index = batch_knn_graph(xyz, k=10, loop=False, batch=batch)
+    edge_index = batch_knn_graph(xyz, k=k, loop=False, batch=batch)
     dst, src = edge_index[0], edge_index[1]
     knn = dst
     # computing thetas
@@ -102,7 +103,7 @@ def torch_rri_representations(xyz, k, batch=None):
     Y = xyz_n[knn.flatten()]  # Y shape is Nk x 3
     # element wise product and then sum along axis 1
     thetas = torch.einsum('ij,ij->i', X, Y)  # theta shape is Nk
-    thetas = torch.acos(thetas)
+    thetas = torch.acos(torch.clamp(thetas, min=-1.0, max=1.0))
     thetas = thetas.reshape(-1, k)  # reshape to obtain N x k matrix
 
     # compute phis
@@ -116,7 +117,8 @@ def torch_rri_representations(xyz, k, batch=None):
     cos_phi = torch.einsum('ijh,ikh->ijk', Tp_n, Tp_n)
 
     # # todo: I don't know how to compute this faster
-    sin_phi = torch.sqrt(1 - cos_phi ** 2)
+    sin_phi = torch.sqrt(torch.clamp(1 - cos_phi ** 2, min=eps, max=1))
+    # sin_phi = cos_phi
 
     cos_phi = cos_phi.flatten()  # NxKxK
     sin_phi = sin_phi.flatten()  # NxKxK
@@ -140,11 +142,41 @@ def torch_rri_representations(xyz, k, batch=None):
 ## test
 if __name__ == "__main__":
     import time
-    for i in range(10):
-        x = torch.rand(100, 3)
-        start = time.time()
-        pt_rri = torch_rri_representations(x, k=10)
-        stop1 = time.time()
-        np_rry = rri_representations(x.detach().numpy(), k=10)
-        stop2 = time.time()
-        print(np.abs(pt_rri.numpy()-np_rry).sum(), f"Torch Time {stop1-start}. Np Time {stop2 - stop1}")
+    from tqdm import tqdm
+    from definitions import MODEL_NET
+    from torch_geometric.data import DataLoader
+    from torch_geometric.datasets import ModelNet
+    from torch_geometric.transforms import SamplePoints, NormalizeScale
+
+    modelnet= ModelNet(root=MODEL_NET, name='40', transform=SamplePoints(1024), pre_transform=NormalizeScale())
+    for i in range(0, 10):
+        print(f"Batch {i*1000}->{(i+1) * 1000}")
+        loader = DataLoader(modelnet[i * 1000: (i+1) * 1000] , batch_size=8, shuffle=False)
+        with tqdm(total=len(loader), desc='ModelNet 40') as pbar:
+            for it, data in enumerate(loader):
+                pos = data.pos
+                batch = data.batch
+                rri, edge_index = torch_rri_representations(pos, k=20, batch=None)
+                nan_ax0 = torch.isnan(rri[:, :, 0]).sum().item()
+                nan_ax1 = torch.isnan(rri[:, :, 1]).sum().item()
+                nan_ax2 = torch.isnan(rri[:, :, 2]).sum().item()
+                nan_ax3 = torch.isnan(rri[:, :, 3]).sum().item()
+                pbar.set_postfix(**{
+                    'nan axis: 0': nan_ax0,
+                    'nan axis: 1': nan_ax1,
+                    'nan axis: 2': nan_ax2,
+                    'nan axis: 3': nan_ax3,
+                })
+                assert torch.isnan(rri[:, :, 0]).sum().item() == 0
+                assert torch.isnan(rri[:, :, 1]).sum().item() == 0
+                assert torch.isnan(rri[:, :, 2]).sum().item() == 0
+                assert torch.isnan(rri[:, :, 3]).sum().item() == 0
+                pbar.update()
+    # for i in range(10):
+    #     x = torch.rand(100, 3)
+    #     start = time.time()
+    #     pt_rri = torch_rri_representations(x, k=10)
+    #     stop1 = time.time()
+    #     np_rry = rri_representations(x.detach().numpy(), k=10)
+    #     stop2 = time.time()
+    #     print(np.abs(pt_rri.numpy()-np_rry).sum(), f"Torch Time {stop1-start}. Np Time {stop2 - stop1}")
