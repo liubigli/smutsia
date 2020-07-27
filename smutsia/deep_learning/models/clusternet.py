@@ -35,8 +35,10 @@ class ClusterNet(nn.Module):
     def forward(self, x, batch=None):
         if self.rri_repr:
             rri, edge_index = torch_rri_representations(x, k=self.k, batch=batch)
+            rri = rri.to(x.device)
+            edge_index = edge_index.to(x.device)
             # RRI block input
-            rri = self.conv0(x)
+            rri = self.conv0(rri)
             x = self.maxpool1(rri)
             x = x[..., 0, :]
         else:
