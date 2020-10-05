@@ -160,6 +160,31 @@ def retrieve_layers(points, max_layers=64):
     return layers
 
 
+def subsample_pc(points, sub_ratio=2, return_layers=False):
+    """
+    Return sub sampled point cloud
+
+    Parameters
+    ----------
+        points: ndarray
+            input point cloud
+
+        sub_ratio: int
+            ratio to use to subsample point cloud
+
+    Returns
+    -------
+        points: ndarray
+            subsampled pointcloud
+    """
+    layers = retrieve_layers(points)
+    # new_points = np.c_[points, layers]
+    if return_layers:
+        return points[layers % sub_ratio == 0], layers
+    # sampling only points with even id
+    return points[layers % sub_ratio == 0]
+
+
 def add_layers(points):
     """
     Add a column containing layer ids to the array of points
