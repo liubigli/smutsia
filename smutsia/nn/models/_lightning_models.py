@@ -6,7 +6,7 @@ from torch_geometric.data import Batch
 from pytorch_lightning.metrics.functional import accuracy
 
 
-from ._morpho_models import DilateDGNN, ErodeDGNN, MorphoGradDGNN
+from ._morpho_models import DilateDGNN, ErodeDGNN, MorphoGradDGNN, HybridDGNN
 from ._dgcnn import DGCNN
 
 class LitDGNN(pl.LightningModule):
@@ -20,12 +20,20 @@ class LitDGNN(pl.LightningModule):
         self.modelname = modelname
         if self.modelname == 'dilate':
             self.model = DilateDGNN(k=self.k, num_classes=self.num_classes)
+        elif self.modelname == 'dilate-flat':
+            self.model = DilateDGNN(k=self.k, num_classes=self.num_classes, kind='flat')
+        elif self.modelname == 'dilate-maxplus':
+            self.model = DilateDGNN(k=self.k, num_classes=self.num_classes, kind='max-plus')
+        elif self.modelname == 'delirium':
+            self.model = HybridDGNN(k=self.k, num_classes=self.num_classes)
         elif self.modelname == 'erode':
             self.model = ErodeDGNN(k=self.k, num_classes=self.num_classes)
         elif self.modelname == 'grad':
             self.model = MorphoGradDGNN(k=self.k, num_classes=self.num_classes)
         elif self.modelname == 'dgcnn':
             self.model = DGCNN(k=self.k, num_classes=self.num_classes)
+        elif self.modelname == 'dgcnn-transf':
+            self.model = DGCNN(k=self.k, num_classes=self.num_classes, transform=True)
         else:
             raise ValueError("modelname can be 'dilate', 'erode', 'grad' or 'dgcnn'."
                              " Value passed is {}}".format(self.modelname))
