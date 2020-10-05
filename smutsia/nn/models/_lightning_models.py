@@ -5,9 +5,9 @@ from torch.optim import Adam, SGD, lr_scheduler
 from torch_geometric.data import Batch
 from pytorch_lightning.metrics.functional import accuracy
 
-
 from ._morpho_models import DilateDGNN, ErodeDGNN, MorphoGradDGNN, HybridDGNN
 from ._dgcnn import DGCNN
+
 
 class LitDGNN(pl.LightningModule):
     def __init__(self, k, num_classes, modelname='dilate', optim='adam', lr=1e-4, weight_decay=1e-4):
