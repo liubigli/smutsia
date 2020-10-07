@@ -3,7 +3,7 @@ import pytorch_lightning as pl
 from torch.nn import functional as F
 from torch.optim import Adam, SGD, lr_scheduler
 from torch_geometric.data import Batch
-from pytorch_lightning.metrics.functional import accuracy
+from pytorch_lightning.metrics.functional import accuracy, iou
 
 from ._morpho_models import DilateDGNN, ErodeDGNN, MorphoGradDGNN, HybridDGNN
 from ._dgcnn import DGCNN
@@ -122,15 +122,17 @@ class LitDGNN(pl.LightningModule):
         test_loss = F.nll_loss(y_hat, y)
         _, y_pred = y_hat.max(dim=1)
         test_acc = accuracy(y_pred, y, num_classes=self.num_classes)
+        test_iou = iou(y_pred, y, num_classes=self.num_classes)
 
         self.logger.experiment.add_scalar("Loss/Test", test_loss, batch_idx)
 
         self.logger.experiment.add_scalar("Accuracy/Test", test_acc, batch_idx)
 
-        return {'test_loss': test_loss, 'test_acc': test_acc, 'progress_bar': {'test_acc': test_acc}}
+        return {'test_loss': test_loss, 'test_acc': test_acc, 'test_iou': test_iou, 'progress_bar': {'test_acc': test_acc}}
 
     def test_epoch_end(self, outputs):
         avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
         avg_acc = torch.stack([x['test_acc'] for x in outputs]).mean()
+        avg_iou = torch.stack([x['test_iou'] for x in outputs]).mean()
 
-        return {'test_loss': avg_loss, 'test_acc': avg_acc}
+        return {'test_loss': avg_loss, 'test_acc': avg_acc, 'test_iou': avg_iou}
