@@ -4,6 +4,7 @@ from __future__ import division
 
 __all__ = [
     'TransformNet',
+    'TNet',
     'LitDGNN',
     'DGCNN',
     'DilateDGNN',
@@ -11,7 +12,7 @@ __all__ = [
     'MorphoGradDGNN'
 ]
 
-from ._point_net import TransformNet
+from ._point_net import TransformNet, TNet
 from ._lightning_models import LitDGNN
 from ._dgcnn import DGCNN
 from ._morpho_models import DilateDGNN, ErodeDGNN, MorphoGradDGNN
