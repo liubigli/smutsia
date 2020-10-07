@@ -1,4 +1,5 @@
 import os
+import importlib
 import argparse
 import pytorch_lightning as pl
 from torch.utils.data import DistributedSampler
@@ -7,6 +8,11 @@ from torch_geometric import transforms as T
 from torch_geometric.data import DataListLoader, DataLoader
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+
+found = importlib.util.find_spec('smutsia')
+if found is None:
+    import sys
+    sys.path.append('../../')
 
 from smutsia.nn.models import LitDGNN
 
@@ -45,8 +51,11 @@ if __name__ == "__main__":
     distr = args.distributed
 
     num_classes = 4
+    print("Warning: The num_classes value is hard coded!!")
     categories = ['Airplane']
     include_normals = False
+    print("Distributed: ", distr)
+    print("Test:", test)
 
     model = LitDGNN(k=k, num_classes=num_classes, modelname=model_arch, optim=optim, lr=lr, weight_decay=weight_decay)
 
@@ -81,6 +90,8 @@ if __name__ == "__main__":
         distributed_backend = None
         replace_sampler_ddp = True
 
+    print("Distributed backend", distributed_backend)
+    print("Replace Sampler", replace_sampler_ddp)
     trainer = pl.Trainer(gpus=gpu,
                          max_epochs=epochs,
                          logger=logger,
@@ -147,3 +158,5 @@ if __name__ == "__main__":
                              )
 
         trainer.test(model, test_dataloaders=test_loader)
+
+    print("FINISH!!!")
