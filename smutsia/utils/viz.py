@@ -16,7 +16,9 @@ def plot_cloud(xyz,
                rgb=False,
                add_scalarbar=True,
                interact=False,
-               notebook=True):
+               notebook=True,
+               title=None,
+               clim=None):
     """
     Helper functions
 
@@ -52,18 +54,21 @@ def plot_cloud(xyz,
     notebook: bool
         set to True if plotting inside a jupyter notebook
 
+    title: str
+        plot title
+
     Returns
     -------
     plotter: pv.Plotter
         return plotter
     """
     if notebook:
-        plotter = pv.BackgroundPlotter()
+        plotter = pv.BackgroundPlotter(title=title)
     else:
-        plotter = pv.Plotter()
+        plotter = pv.Plotter(title=title)
 
     poly = pv.PolyData(xyz)
-    plotter.add_mesh(poly, color=color, scalars=scalars, cmap=cmap, rgb=rgb, point_size=point_size)
+    plotter.add_mesh(poly, color=color, scalars=scalars, cmap=cmap, rgb=rgb, point_size=point_size, clim=clim)
 
     if add_scalarbar and not rgb:
         plotter.add_scalar_bar()
