@@ -6,7 +6,7 @@ from torch_geometric.data import Batch
 from pytorch_lightning.metrics.functional import accuracy, iou
 
 from ._morpho_models import DilateDGNN, ErodeDGNN, MorphoGradDGNN, HybridDGNN
-from ._dgcnn import DGCNN
+from ._dgcnn import DGCNN, BilateralDGCNN
 
 
 class LitDGNN(pl.LightningModule):
@@ -34,6 +34,8 @@ class LitDGNN(pl.LightningModule):
             self.model = DGCNN(k=self.k, num_classes=self.num_classes)
         elif self.modelname == 'dgcnn-transf':
             self.model = DGCNN(k=self.k, num_classes=self.num_classes, transform=True)
+        elif self.modelname == 'bilateral':
+            self.model = BilateralDGCNN(k=self.k, num_classes=self.num_classes, transform=True)
         else:
             raise ValueError("modelname can be 'dilate', 'erode', 'grad' or 'dgcnn'."
                              " Value passed is {}}".format(self.modelname))
