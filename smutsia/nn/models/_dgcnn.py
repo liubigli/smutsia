@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import Module, Sequential as Seq, Dropout, Linear, functional as F
 from torch_geometric.nn import DynamicEdgeConv
 
-from ..layers import BilateralConv
+from ..conv import BilateralConv
 from ._point_net import TransformNet, TNet
 from .. import MLP
 

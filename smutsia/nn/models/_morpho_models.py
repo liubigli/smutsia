@@ -2,7 +2,7 @@ import torch
 from torch.nn import Sequential as Seq, Linear, Dropout, Module
 from torch.nn import functional as F
 from torch_geometric.nn import DynamicEdgeConv
-from smutsia.nn.layers.morpho_layers import DilateEdgeConv, DilateMaxPlus, DilateFlatEdgeConv, ErodeEdgeConv, Delirium
+from smutsia.nn.conv.morpho_layers import DilateEdgeConv, DilateMaxPlus, DilateFlatEdgeConv, ErodeEdgeConv, Delirium
 
 from .. import MLP
 
