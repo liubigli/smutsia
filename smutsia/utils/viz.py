@@ -2,9 +2,14 @@ import itertools
 import numpy as np
 import pyvista as pv
 import matplotlib as mpl
+import colorsys
+import matplotlib.colors as mc
 from matplotlib import pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.cluster.hierarchy import dendrogram, set_link_color_palette
 from scipy.sparse import find
+
+COLORS  = np.array(['#377eb8', '#ff7f00', '#4daf4a', '#a65628', '#f781bf', '#984ea3', '#999999', '#e41a1c', '#dede00'])
 
 
 def plot_cloud(xyz,
@@ -56,6 +61,9 @@ def plot_cloud(xyz,
 
     title: str
         plot title
+
+    clim: list
+        interval for color bar
 
     Returns
     -------
@@ -159,6 +167,48 @@ def color_bool_labeling(y_true, y_pred, pos_label=1, rgb=True):
         colors[fp] = 75
 
     return colors
+
+
+def lighten_color(color_list, amount=0.25):
+    """
+    Lightens the given color by multiplying (1-luminosity) by the given amount.
+    Input can be matplotlib color string, hex string, or RGB tuple.
+
+    Examples:
+    >> lighten_color('g', 0.3)
+    >> lighten_color('#F034A3', 0.6)
+    >> lighten_color((.3,.55,.1), 0.5)
+    """
+    out = []
+    for color in color_list:
+        try:
+            c = mc.cnames[color]
+        except:
+            c = color
+        c = colorsys.rgb_to_hls(*mc.to_rgb(c))
+        lc = colorsys.hls_to_rgb(c[0], 1 - amount * (1 - c[1]), c[2])
+        out.append(lc)
+    return out
+
+
+def plot_clustering(X, y, idx=None):
+    ec = COLORS[y % len(COLORS)]
+    plt.scatter(X[:, 0], X[:, 1], s=15, linewidths=1.5, c=lighten_color(ec), edgecolors=ec, alpha=0.9)
+    # plt.axis([X[:,0].min(), X[:,0].max(), X[:,1].min(), X[:,1].max()])
+    plt.xticks(())
+    plt.yticks(())
+    if idx is not None:
+        iec = COLORS[y[idx] % len(COLORS)]
+        plt.scatter(X[idx, 0], X[idx, 1], s=30, color=iec, marker='s', edgecolors='k')
+
+
+def plot_dendrogram(linkage_matrix, n_clusters=0, lastp=30):
+    extra = {} if lastp is None else dict(truncate_mode='lastp', p=lastp)
+    set_link_color_palette(list(COLORS))
+    dsort = np.sort(linkage_matrix[:, 2])
+    dendrogram(linkage_matrix, no_labels=True, above_threshold_color="k", color_threshold=dsort[-n_clusters + 1],
+               **extra)
+    plt.yticks([])
 
 
 def inspect_missclass(im_class, im_pred, selected_id, im_max, im_min, savedir, filename):
