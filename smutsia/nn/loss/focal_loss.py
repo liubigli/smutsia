@@ -15,4 +15,4 @@ class BinaryFocalLoss(torch.nn.Module):
         cross_entropy = - torch.log(p_t)
         weight = alpha_t * torch.pow((1 - p_t), self.gamma)
         loss = weight * cross_entropy
-        return loss.sum()
+        return loss.mean()
