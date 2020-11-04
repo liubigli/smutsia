@@ -3,7 +3,7 @@ import numpy as np
 import higra as hg
 
 
-def make_pairs(labels, idx):
+def make_pairs(labels: torch.Tensor, idx: torch.Tensor):
     """
     Create all triplets from the provided labeld set. This function returns:
 
@@ -12,9 +12,10 @@ def make_pairs(labels, idx):
     :return: a tuple ``pairs=(vertices1, vertices2)`` indexing all the pairs of elements in ``ìdx``
     """
     pairs = labels[None] == labels[:, None]
-    src, dst = np.triu_indices(pairs.shape[0], 1)
-    labels = pairs[src, dst].astype(float)
+    src, dst = torch.triu_indices(pairs.size(0), pairs.size(1), 1)
+    labels = pairs[src, dst].type(torch.float)
     pairs = idx[src], idx[dst]
+
     return pairs, labels
 
 
@@ -41,14 +42,14 @@ def make_triplets(labels, idx):
 
             # positive indices
             positive = label == labels
-            positive_indices, = positive.nonzero()
+            positive_indices = positive.nonzero()
 
             if len(positive_indices) < 2:
                 continue
 
             # negative indices
-            negative = np.logical_not(positive)
-            negative_indices, = negative.nonzero()
+            negative = torch.logical_not(positive)
+            negative_indices = negative.nonzero()
 
             # All positive pairs
             pairs = list(combinations(positive_indices, 2))
@@ -58,7 +59,8 @@ def make_triplets(labels, idx):
                 for negative in negative_indices:
                     triplets += [(anchor, positive, negative)]
 
-        return np.array(triplets)
+        # return np.array(triplets)
+        return torch.tensor(triplets, dtype=torch.long)
 
     def get_triplets():
 
@@ -69,9 +71,10 @@ def make_triplets(labels, idx):
         negative = triplets[:, 2]
 
         # linearized indices
-        n = labels.size
-        idx_table = np.zeros((n, n), dtype=int)
-        idx_table[np.triu_indices(n, 1)] = np.arange(n * (n - 1) // 2)
+        n = labels.numel()
+        idx_table = torch.zeros((n, n), dtype=torch.long)
+        row, col = torch.triu_indices(n, n, 1)
+        idx_table[row, col] = torch.arange(n * (n - 1) // 2)
         idx_table += idx_table.T
         positive_pairs = idx_table[anchor, positive]
         negative_pairs = idx_table[anchor, negative]
@@ -116,10 +119,37 @@ def loss_cluster_size(graph, edge_weights, ultrametric, hierarchy, top_nodes=0, 
 
     cluster_size_loss = ultrametric[top_edges] / min_area
 
-    return cluster_size_loss.mean()
+    return cluster_size_loss.max()
 
 
 def loss_triplet(graph, edge_weights, ultrametric, hierarchy, triplets, margin):
+    """
+    Triplet loss regularization with triplet :math:`\mathcal{T}`:
+
+     .. math::
+
+        loss = \sum_{(ref, pos, neg)\in \mathcal{T}} \max(0, ultrametric(ref, pos) - ultrametric(ref, neg) + margin)
+
+    :param graph: input graph (``higra.UndirectedGraph``)
+    :param edge_weights: edge weights of the input graph (``torch.Tensor``, autograd is supported)
+    :param ultrametric; ultrametric on the input graph  (``torch.Tensor``, autograd is supported)
+    :param hierarchy: optional,  if provided must be a tuple ``(tree, altitudes)`` corresponding to the result of ``higra.bpt_canonical`` on the input edge weighted graph
+    :param triplets:
+    :param margin:
+    :return: loss value as a pytorch scalar
+    """
+    tree, altitudes = hierarchy
+    lcaf = hg.make_lca_fast(tree)
+
+    pairs, (pos, neg) = triplets
+    pairs_distances = altitudes[lcaf.lca(*pairs)]  # ultrametric[mst_map[lcaf.lca(*pairs) - tree.num_leaves()]]
+
+    triplet_loss = torch.relu(pairs_distances[pos] - pairs_distances[neg] + margin)
+
+    return triplet_loss.mean()
+
+
+def loss_siamese_triplet(hierarchy, triplets, margin):
     """
     Triplet loss regularization with triplet :math:`\mathcal{T}`:
 
