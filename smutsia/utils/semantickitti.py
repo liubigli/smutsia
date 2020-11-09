@@ -96,11 +96,11 @@ def retrieve_layers(points, max_layers=64):
         input point cloud
 
     max_layers: int
-        maximum number of layers to detect
+        maximum number of conv to detect
 
     Returns
     -------
-    layers: ndarray
+    conv: ndarray
         array containing for each point the id of corresponding layer in the scanner that acquired it
     """
     x = points[:, 0]
@@ -130,7 +130,7 @@ def retrieve_layers(points, max_layers=64):
 
     intervals.append([changes[-1], len(thetas)])
 
-    # check if we have retrieved all the layers
+    # check if we have retrieved all the conv
     if len(intervals) < max_layers:
         el = intervals.pop(0)
         # in case not we are going to explore again the vector of thetas on the initial part
@@ -178,7 +178,7 @@ def subsample_pc(points, sub_ratio=2, return_layers=False):
             subsampled pointcloud
     """
     layers = retrieve_layers(points)
-    # new_points = np.c_[points, layers]
+    # new_points = np.c_[points, conv]
     if return_layers:
         return points[layers % sub_ratio == 0], layers
     # sampling only points with even id
