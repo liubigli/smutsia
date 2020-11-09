@@ -5,9 +5,25 @@ from sklearn.datasets import make_moons, make_circles, make_blobs
 from torch_geometric.data import Data, InMemoryDataset
 
 
-def sample_circles(n_samples: int, noise: float, factor: float = .5, random_state: Union[int, None] = None):
+def get_label_idx(y: np.ndarray, label_quantity: Union[int, float]):
+    if type(label_quantity) == float:
+        num_labels = np.round(len(y) * label_quantity).astype(int)
+        label_idx = np.random.choice(len(y), num_labels, replace=False)
+
+    elif type(label_quantity) == int:
+        label_idx = np.random.choice(np.arange(len(y)), label_quantity, replace=False)
+
+    else:
+        raise TypeError("label_quantity must be an int or a float")
+
+    return label_idx
+
+
+def sample_circles(n_samples: int, noise: float,
+                   factor: float = .5, random_state: Union[int, None] = None):
 
     x, y = make_circles(n_samples, factor=factor, noise=noise, random_state=random_state)
+
     return x, y
 
 
@@ -46,7 +62,7 @@ def sample_moons(n_samples: int, noise: float, shift_x: float = 2.0, shift_y: fl
 
 
 def generate_dataset(name: str, total_samples: int, max_points: int, noise: Union[float, Tuple[float, float]],
-                     random_length: bool = True, seed: int = -1):
+                     num_labels: Union[int, float], random_length: bool = True, seed: int = -1):
     """
     Function that generate one of the five possible toy datasets
 
@@ -63,6 +79,9 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
 
         noise: Union[float, Tuple[float, float]]
             noise value to use or interval of noises to use
+
+        num_labels: Union[int, flat]
+            number / percentage of labels to use for the semi-supervised tasks
 
         random_length: bool
             if yes each sample contains a random number of points
@@ -119,15 +138,17 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
             raise KeyError(f"Dataset name {name} not known. "
                            f"Possible choices are 'circles', 'moons', 'blobs', 'varied', 'aniso'")
 
-        x, y = torch.Tensor(x), torch.from_numpy(y)
+        labels = get_label_idx(y, label_quantity=num_labels)
+        x, y, labels = torch.Tensor(x), torch.from_numpy(y), torch.from_numpy(labels)
 
-        data.append(Data(x=x, y=y))
+        data.append(Data(x=x, y=y, labels=labels))
 
     return data
 
 
 class ToyDatasets(InMemoryDataset):
-    def __init__(self, length: int, name: str, noise: Union[float, Tuple[float, float]] = 0.05,
+    def __init__(self, length: int, name: str, num_labels: Union[float, int],
+                 noise: Union[float, Tuple[float, float]] = 0.05,
                  max_samples: int = 300, random_length: bool = True, seed: int = -1):
         """
         Class that generates an InMemoryDataset for Ultrametric Fitting tests
@@ -139,6 +160,9 @@ class ToyDatasets(InMemoryDataset):
 
             name: str Optional {'cicles', 'moons', 'blobs', 'varied', 'aniso'}
                 Name of the toy dataset to generate
+
+            num_labels: int or float
+                number / percentage of labels to use for the semi-supervised tasks
 
             noise: Union[float, Tuple[float, float]]
                 noise used to generate points
@@ -156,12 +180,13 @@ class ToyDatasets(InMemoryDataset):
         super(ToyDatasets, self).__init__('.', None, None, None)
         self.length = length
         self.name = name.lower()
+        self.num_labels = num_labels
         self.noise = noise
         self.max_samples = max_samples
         self.random_length = random_length
         self.seed = seed
 
-        data = generate_dataset(name=self.name, total_samples=self.length,
+        data = generate_dataset(name=self.name, total_samples=self.length, num_labels=self.num_labels,
                                 max_points=self.max_samples, noise=self.noise, random_length=self.random_length,
                                 seed=self.seed)
 
