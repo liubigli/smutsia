@@ -5,6 +5,7 @@ import matplotlib as mpl
 import colorsys
 import matplotlib.colors as mc
 from matplotlib import pyplot as plt
+from matplotlib.collections import LineCollection
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.cluster.hierarchy import dendrogram, set_link_color_palette
 from scipy.sparse import find
@@ -200,6 +201,8 @@ def plot_clustering(X, y, idx=None):
     if idx is not None:
         iec = COLORS[y[idx] % len(COLORS)]
         plt.scatter(X[idx, 0], X[idx, 1], s=30, color=iec, marker='s', edgecolors='k')
+    plt.xlim(X[:, 0].min(), X[:, 0].max())
+    plt.ylim(X[:, 1].min(), X[:, 1].max())
 
 
 def plot_dendrogram(linkage_matrix, n_clusters=0, lastp=30):
@@ -209,6 +212,40 @@ def plot_dendrogram(linkage_matrix, n_clusters=0, lastp=30):
     dendrogram(linkage_matrix, no_labels=True, above_threshold_color="k", color_threshold=dsort[-n_clusters + 1],
                **extra)
     plt.yticks([])
+
+
+def plot_graph(x, edge_index, edge_col):
+    import torch
+    if isinstance(x, torch.Tensor):
+        xout = x.detach().cpu().numpy()
+    else:
+        xout = x
+
+    if isinstance(edge_col, torch.Tensor):
+        edge_col = edge_col.detach().cpu().numpy()
+    else:
+        edge_col = edge_col
+
+    if isinstance(edge_index, torch.Tensor):
+        e = edge_index.detach().cpu().numpy()
+    else:
+        e = edge_index
+
+    segments = np.stack([xout[e[0]], xout[e[1]]], axis=1)
+    lc = LineCollection(segments, zorder=0)
+    lc.set_array(edge_col)
+    lc.set_clim(vmin=0., vmax=1.0)
+    ax = plt.gca()
+    ax.set_xticks(())
+    ax.set_yticks(())
+    ax.set_xlim(segments[:, :, 0].min(), segments[:, :, 0].max())
+    ax.set_ylim(segments[:, :, 1].min(), segments[:, :, 1].max())
+    ax.add_collection(lc)
+    axcb = plt.colorbar(lc)
+    axcb.set_label('Edge Label')
+    plt.sci(lc)
+    plt.axis('equal')
+    ax.scatter(xout[:, 0], xout[:, 1], s=20, c='w', edgecolors='k')
 
 
 def inspect_missclass(im_class, im_pred, selected_id, im_max, im_min, savedir, filename):
