@@ -60,7 +60,7 @@ def cloud_spherical_graph(xyz, nb_layers=64, res_yaw=2048, metric=None):
         input point cloud
 
     nb_layers: int
-        number of layers in the scanner used for acquiring point cloud
+        number of conv in the scanner used for acquiring point cloud
 
     res_yaw: int
         yaw resolution used for projection by layer
@@ -77,7 +77,7 @@ def cloud_spherical_graph(xyz, nb_layers=64, res_yaw=2048, metric=None):
     n_points = len(xyz)
     # img_edges = _make_edges_spherical_images(nr=res_pitch, nc=res_yaw)
 
-    proj = Projection(proj_type='layers', res_yaw=res_yaw, nb_layers=nb_layers)
+    proj = Projection(proj_type='conv', res_yaw=res_yaw, nb_layers=nb_layers)
     lidx, i_img, j_img = proj.projector.project_point(xyz)
 
     # using c++ code to build spherical graph
@@ -110,10 +110,10 @@ def cloud_3d_graph(xyz, k=10, nb_layers=64, res_yaw=2048, metric=None, return_co
         number of nearest neighbors to consider to build knn graph
 
     nb_layers: int
-        Number of layers used by the scanners. Used for projection by layers
+        Number of conv used by the scanners. Used for projection by conv
 
     res_yaw: int
-        horizontal resolution to use for projection by layers
+        horizontal resolution to use for projection by conv
 
     metric: func
         custom function to use to weights edges
