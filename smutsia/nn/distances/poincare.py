@@ -152,3 +152,49 @@ class HyperbolicDistance(BaseDistance):
 
         return torch.acosh(dxy)
 
+
+class HyperbolicLCA(BaseDistance):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.p = 2
+        self.normalize_embeddings = False
+        assert not self.normalize_embeddings
+
+    def compute_mat(self, query_emb, ref_emb):
+        if ref_emb is None:
+            ref_emb = query_emb
+
+        # x has shape NxD
+        x = project(query_emb)
+        # y has shape MxD
+        y = project(ref_emb)
+
+        # norms of every element in the query
+        nx = torch.norm(x, dim=-1, p=self.p, keepdim=True)
+        ny = torch.norm(y, dim=-1, p=self.p, keepdim=True)
+        scalar = torch.matmul(x, y.T)
+        c_theta = scalar / torch.matmul(nx, ny.T)
+        theta = torch.acos(c_theta.clamp_min(- 1 + MIN_NORM).clamp_max(1 - MIN_NORM))
+        rxy = torch.matmul(nx, (ny**2 + 1).T)
+        ryx = torch.matmul((nx**2 + 1), ny.T).clamp_min(MIN_NORM)
+        alpha = torch.atan((1 / torch.sin(theta)) * ((rxy / ryx)-c_theta))
+        sq_ratio = (nx ** 2 + 1) / (2 * nx * torch.cos(alpha))
+        R = torch.sqrt(sq_ratio ** 2 - 1)
+
+        return 2 * torch.atanh(torch.sqrt(R**2 + 1) - R)
+
+    def pairwise_distance(self, query_emb, ref_emb):
+        # query_emb and ref_emb size is NxC
+        x = project(query_emb)
+        y = project(ref_emb)
+        # shape of nx, ny and scalar is N
+        nx = torch.norm(x, dim=-1, p=self.p)
+        ny = torch.norm(y, dim=-1, p=self.p)
+        scalar = torch.einsum('ij,ij->i', x, y)
+        c_theta = scalar / (nx * ny).clamp_min(MIN_NORM)
+        theta = torch.acos(c_theta.clamp_min(- 1 + MIN_NORM).clamp_max(1 - MIN_NORM))
+        r = (nx * (ny ** 2 + 1) )/ (ny * (nx ** 2 + 1)).clamp_min(MIN_NORM)
+        alpha = torch.atan((1 / torch.sin(theta)) * (r - c_theta))
+        R = torch.sqrt((((nx**2 + 1)/(2* nx * torch.cos(alpha))) ** 2 - 1).clamp_min(MIN_NORM))
+
+        return 2 * torch.atanh(torch.sqrt(R**2 + 1) - R)
