@@ -1,1 +1,6 @@
-from .poincare import HyperbolicDistance
+__all__ = [
+    'HyperbolicDistance',
+    'HyperbolicLCA'
+]
+
+from .poincare import HyperbolicDistance, HyperbolicLCA
