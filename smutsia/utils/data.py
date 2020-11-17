@@ -6,17 +6,22 @@ from torch_geometric.data import Data, InMemoryDataset
 
 
 def get_label_idx(y: np.ndarray, label_quantity: Union[int, float]):
-    if type(label_quantity) == float:
-        num_labels = np.round(len(y) * label_quantity).astype(int)
-        label_idx = np.random.choice(len(y), num_labels, replace=False)
+    num_classes = np.unique(y).size
+    label_idx = []
+    idx = np.arange(y.size)
+    for i in range(num_classes):
+        if type(label_quantity) == float:
+            num_labels = np.round(len(y) * label_quantity * (1 / num_classes)).astype(int)
+            label_idx.append(np.random.choice(idx[y==i], num_labels, replace=False))
 
-    elif type(label_quantity) == int:
-        label_idx = np.random.choice(np.arange(len(y)), label_quantity, replace=False)
+        elif type(label_quantity) == int:
+            num_labels = label_quantity // num_classes
+            label_idx.append(np.random.choice(idx[y==i], num_labels, replace=False))
 
-    else:
-        raise TypeError("label_quantity must be an int or a float")
+        else:
+            raise TypeError("label_quantity must be an int or a float")
 
-    return label_idx
+    return np.concatenate(label_idx)
 
 
 def sample_circles(n_samples: int, noise: float,
@@ -138,45 +143,46 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
             raise KeyError(f"Dataset name {name} not known. "
                            f"Possible choices are 'circles', 'moons', 'blobs', 'varied', 'aniso'")
 
-        labels = get_label_idx(y, label_quantity=num_labels)
-        x, y, labels = torch.Tensor(x), torch.from_numpy(y), torch.from_numpy(labels)
-
+        lab_idx = get_label_idx(y, label_quantity=num_labels)
+        x, y, lab_idx = torch.Tensor(x), torch.from_numpy(y), torch.from_numpy(lab_idx)
+        labels = torch.zeros_like(y, dtype=torch.bool)
+        labels[lab_idx] = True
         data.append(Data(x=x, y=y, labels=labels))
 
     return data
 
 
 class ToyDatasets(InMemoryDataset):
+    """
+    Class that generates an InMemoryDataset for Ultrametric Fitting tests
+
+    Parameters
+    ----------
+        length: int
+            Total number of samples to generate in the dataset
+
+        name: str Optional {'cicles', 'moons', 'blobs', 'varied', 'aniso'}
+            Name of the toy dataset to generate
+
+        num_labels: int or float
+            number / percentage of labels to use for the semi-supervised tasks
+
+        noise: Union[float, Tuple[float, float]]
+            noise used to generate points
+
+        max_samples: int
+            Maximum number of points for each sample
+
+        random_length: bool
+            True if you want that each sample has a different number of points. False for samples with all the same
+            length
+
+        seed: int
+            If you want generate always the same dataset use a value equal or greater than 0
+    """
     def __init__(self, length: int, name: str, num_labels: Union[float, int],
                  noise: Union[float, Tuple[float, float]] = 0.05,
                  max_samples: int = 300, random_length: bool = True, seed: int = -1):
-        """
-        Class that generates an InMemoryDataset for Ultrametric Fitting tests
-
-        Parameters
-        ----------
-            length: int
-                Total number of samples to generate in the dataset
-
-            name: str Optional {'cicles', 'moons', 'blobs', 'varied', 'aniso'}
-                Name of the toy dataset to generate
-
-            num_labels: int or float
-                number / percentage of labels to use for the semi-supervised tasks
-
-            noise: Union[float, Tuple[float, float]]
-                noise used to generate points
-
-            max_samples: int
-                Maximum number of points for each sample
-
-            random_length: bool
-                True if you want that each sample has a different number of points. False for samples with all the same
-                length
-
-            seed: int
-                If you want generate always the same dataset use a value equal or greater than 0
-        """
         super(ToyDatasets, self).__init__('.', None, None, None)
         self.length = length
         self.name = name.lower()
