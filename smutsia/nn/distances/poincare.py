@@ -2,6 +2,8 @@ import torch
 from pytorch_metric_learning.distances import BaseDistance
 from pytorch_metric_learning.utils import loss_and_miner_utils as lmu
 
+from smutsia.utils.math import arctanh, arcosh, arsinh, tanh, cosh, sinh
+
 """Poincare utils functions."""
 # from utils.math import arctanh, tanh
 
@@ -78,11 +80,48 @@ def mobius_add(x, y):
     return num / denom.clamp_min(MIN_NORM)
 
 
+def mobius_transf(z, x, pairwise=True):
+    # mobius transf that maps x to origin and y to M(y)
+    z1 = torch.view_as_complex(z)
+    x1 = torch.view_as_complex(x)
+
+    if not pairwise:
+        if z1.dim() == 1:
+            z1 = z1.view(-1, 1)
+        if x1.dim() == 1:
+            x1 = x1.view(1, -1)
+
+    num = x1 - z1
+    den = 1 - z1.conj()*x1
+    out = num / den
+
+    return torch.view_as_real(out)
+
+def inverse_mobius_transf(z, x, pairwise=True):
+    # inverse map of mobius transf
+    z1 = torch.view_as_complex(z)
+    x1 = torch.view_as_complex(x)
+
+    if not pairwise:
+        if z1.dim() == 1:
+            z1 = z1.view(-1, 1)
+        if x1.dim() == 1:
+            x1 = x1.view(1, -1)
+
+    num = x1 + z1
+    den = 1 + z1.conj()*x1
+
+    out = num / den
+
+    return torch.view_as_real(out)
+
+
+
 def mobius_mul(x, t):
     """Mobius scalar multiplication."""
     normx = x.norm(dim=-1, p=2, keepdim=True).clamp_min(MIN_NORM)
-    # return tanh(t * arctanh(normx)) * x / normx
-    return torch.tanh(t * torch.atanh(normx)) * x / normx
+    return tanh(t * arctanh(normx)) * x / normx
+    # return torch.tanh(t * torch.atanh(normx)) * x / normx
 
 
 def get_midpoint_o(x):
@@ -97,8 +136,8 @@ def hyp_dist_o(x):
     Computes hyperbolic distance between x and the origin.
     """
     x_norm = x.norm(dim=-1, p=2, keepdim=True)
-    # return 2 * arctanh(x_norm)
-    return 2 * torch.atanh(x_norm)
+    return 2 * arctanh(x_norm)
+    # return 2 * torch.atanh(x_norm)
 
 
 """ Distances on the poincare ball"""
@@ -164,37 +203,38 @@ class HyperbolicLCA(BaseDistance):
         if ref_emb is None:
             ref_emb = query_emb
 
-        # x has shape NxD
+        # x has shape Nx2
         x = project(query_emb)
-        # y has shape MxD
+        # y has shape Mx2
         y = project(ref_emb)
 
-        # norms of every element in the query
-        nx = torch.norm(x, dim=-1, p=self.p, keepdim=True)
-        ny = torch.norm(y, dim=-1, p=self.p, keepdim=True)
-        scalar = torch.matmul(x, y.T)
-        c_theta = scalar / torch.matmul(nx, ny.T)
-        theta = torch.acos(c_theta.clamp_min(- 1 + MIN_NORM).clamp_max(1 - MIN_NORM))
-        rxy = torch.matmul(nx, (ny**2 + 1).T)
-        ryx = torch.matmul((nx**2 + 1), ny.T).clamp_min(MIN_NORM)
-        alpha = torch.atan((1 / torch.sin(theta)) * ((rxy / ryx)-c_theta))
-        sq_ratio = (nx ** 2 + 1) / (2 * nx * torch.cos(alpha))
-        R = torch.sqrt(sq_ratio ** 2 - 1)
+        # num of points in query_emb
+        n = x.shape[0]
+        # num of points in ref_emb
+        m = y.shape[0]
 
-        return 2 * torch.atanh(torch.sqrt(R**2 + 1) - R)
+        # the output must be a matrix NxM
+        dox = hyp_dist_o(x) + torch.zeros(1, m)
+        doy = hyp_dist_o(y).T + torch.zeros(n, 1)
+        mapd_y = mobius_transf(x, y, pairwise=False)
+        mid_points = get_midpoint_o(mapd_y)
+        m = inverse_mobius_transf(x, mid_points, pairwise=False)
+        dom = hyp_dist_o(m)[..., 0]
+
+        return torch.min(torch.min(dox, doy), dom)
+
 
     def pairwise_distance(self, query_emb, ref_emb):
         # query_emb and ref_emb size is NxC
         x = project(query_emb)
         y = project(ref_emb)
-        # shape of nx, ny and scalar is N
-        nx = torch.norm(x, dim=-1, p=self.p)
-        ny = torch.norm(y, dim=-1, p=self.p)
-        scalar = torch.einsum('ij,ij->i', x, y)
-        c_theta = scalar / (nx * ny).clamp_min(MIN_NORM)
-        theta = torch.acos(c_theta.clamp_min(- 1 + MIN_NORM).clamp_max(1 - MIN_NORM))
-        r = (nx * (ny ** 2 + 1) )/ (ny * (nx ** 2 + 1)).clamp_min(MIN_NORM)
-        alpha = torch.atan((1 / torch.sin(theta)) * (r - c_theta))
-        R = torch.sqrt((((nx**2 + 1)/(2* nx * torch.cos(alpha))) ** 2 - 1).clamp_min(MIN_NORM))
 
-        return 2 * torch.atanh(torch.sqrt(R**2 + 1) - R)
+        mapd_y = mobius_transf(x, y)
+        mid_points = get_midpoint_o(mapd_y)
+        m = inverse_mobius_transf(x, mid_points)
+        m_dists = hyp_dist_o(m)
+        x_dists = hyp_dist_o(x)
+        y_dists = hyp_dist_o(y)
+        # vertex = torch.cat([x_dists, y_dists, m_dists], dim=-1)
+        dists = torch.min(min(x_dists, y_dists), m_dists)
+        return dists
