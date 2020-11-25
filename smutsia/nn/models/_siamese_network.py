@@ -13,6 +13,7 @@ from torch_geometric.nn import knn_graph
 from torch_geometric.nn.conv import DynamicEdgeConv
 from torch_geometric.data import Batch
 from pytorch_metric_learning import losses, distances, regularizers, reducers
+from pytorch_metric_learning.utils import loss_and_miner_utils as lmu
 from sklearn.metrics.cluster import adjusted_rand_score as ri
 
 from smutsia.utils.viz import plot_graph, plot_clustering, plot_dendrogram
@@ -25,10 +26,11 @@ from .. import MLP
 
 
 class FeatureExtraction(torch.nn.Module):
-    def __init__(self, in_channels: int, hidden_features: int, k: int, transformer: bool = False,):
+    def __init__(self, in_channels: int, out_features: int, hidden_features: int, k: int, transformer: bool = False,):
         super(FeatureExtraction, self).__init__()
         self.in_channels = in_channels
         self.hidden_features = hidden_features
+        self.out_features = out_features
         self.k = k
         self.transformer = transformer
 
@@ -44,7 +46,7 @@ class FeatureExtraction(torch.nn.Module):
             k=self.k
         )
         self.conv3 = DynamicEdgeConv(
-            nn=MLP([2 * hidden_features, hidden_features], negative_slope=0.2),
+            nn=MLP([2 * hidden_features, out_features], negative_slope=0.2),
             k=self.k
         )
 
@@ -351,18 +353,28 @@ class SiameseUltrametric(pl.LightningModule):
 
 
 class SiameseHyperbolic(pl.LightningModule):
-    def __init__(self, nn: torch.nn.Module, margin: float = 1.0, lr=1e-3, plot_interval: int = -1):
+    def __init__(self, nn: torch.nn.Module, temperature=0.01, margin: float = 1.0, init_rescale=1e-3,  max_scale=1. - 1e-3,
+                 lr=1e-3, plot_interval: int = -1):
         super(SiameseHyperbolic, self).__init__()
         self.model = nn
-
+        self.rescale = torch.nn.Parameter(torch.Tensor([init_rescale]), requires_grad=True)
+        self.temperature = temperature
+        self.max_scale = max_scale
         self.margin = margin
-        self.distance = HyperbolicLCA()
-        self.loss_triplet = losses.TripletMarginLoss(distance=self.distance,
-                                                     margin=self.margin)
+        self.distance_lca = HyperbolicLCA()
+        self.distace_cos = distances.CosineSimilarity()
+        self.loss_triplet_cos = losses.TripletMarginLoss(distance=distances.CosineSimilarity(), margin=self.margin,
+                                                         embedding_regularizer=regularizers.LpRegularizer())
 
         # learning rate
         self.lr = lr
         self.plot_interval = plot_interval
+
+    def _rescale_emb(self, embeddings):
+        """Normalize leaves embeddings to have the lie on a diameter."""
+        min_scale = 1e-2 #self.init_size
+        max_scale = self.max_scale
+        return F.normalize(embeddings, p=2, dim=1) * self.rescale.clamp_min(min_scale).clamp_max(max_scale)
 
     def _loss(self, x, y, labels=None):
         if labels is not None:
@@ -372,12 +384,46 @@ class SiameseHyperbolic(pl.LightningModule):
             x_samples = x
             y_samples = y
 
-        loss_triplet = self.loss_triplet(x_samples, y_samples)
 
-        return loss_triplet
+        indices_tuple = lmu.convert_to_triplets(None, y_samples, t_per_anchor='all')
+
+        anchor_idx, positive_idx, negative_idx = indices_tuple
+        # print("Len Anchor: ", len(anchor_idx))
+        if len(anchor_idx) == 0:
+            return self.zero_losses()
+        # #
+        mat_cos = self.distace_cos(x_samples)
+        mat_lca = self.distance_lca(self._rescale_emb(x_samples))
+        wij = mat_cos[anchor_idx, positive_idx]
+        wik = mat_cos[anchor_idx, negative_idx]
+        wjk = mat_cos[positive_idx, negative_idx]
+
+        dij = mat_lca[anchor_idx, positive_idx]
+        dik = mat_lca[anchor_idx, negative_idx]
+        djk = mat_lca[positive_idx, negative_idx]
+
+        # loss proposed by Chami et al.
+        lca_norm = torch.stack([wij, wik, wjk]).T
+        similarities = torch.stack([dij, dik, djk]).T
+        weights = torch.softmax(lca_norm / self.temperature, dim=-1)
+
+        w_ord = torch.sum(similarities * weights, dim=-1, keepdim=True)
+        total = torch.sum(similarities, dim=-1, keepdim=True) - w_ord
+        loss_triplet_lca = torch.mean(total)
+
+        #
+        # # return loss_triplet_lca
+        #
+        # # base triplet margin
+        # current_margins = self.distace_lp.margin(wij, wik)
+        # loss_triplet_lp = F.relu(-current_margins + self.margin).mean()
+        return self.loss_triplet_cos(x_samples, y_samples) + loss_triplet_lca
+        # return  loss_triplet_lp
+        # return loss_triplet_lp + loss_triplet_lca
 
     def _decode_tree(self, leaves_embeddings):
         """Build a binary tree (nx graph) from leaves' embeddings. Assume points are normalized to same radius."""
+        leaves_embeddings = self._rescale_emb(leaves_embeddings)
         sim_fn = lambda x, y: np.arccos(np.clip(np.sum(x * y, axis=-1), -1.0, 1.0))
         embeddings = F.normalize(leaves_embeddings, p=2, dim=1).detach().cpu()
         Z = linkage(embeddings, metric=sim_fn)
@@ -389,16 +435,14 @@ class SiameseHyperbolic(pl.LightningModule):
             batch = torch.zeros(x.size(0), dtype=torch.long)
 
         batch_size = batch.max() + 1
+
         # feature extractor
         x = self.model(x)
 
-        loss = None
+        loss = 0.0
         linkage_mat = []
         for i in range(batch_size):
-            if loss is None:
-                loss = self._loss(x[batch==i], y[batch==i], labels[batch==i])
-            else:
-                loss += self._loss(x, y, labels)
+            loss += self._loss(x, y, labels)
             if decode:
                 Z = self._decode_tree(x[batch==i])
                 linkage_mat.append(Z)
@@ -436,13 +480,7 @@ class SiameseHyperbolic(pl.LightningModule):
 
     def training_step(self, data, batch_idx):
         x, loss, _ = self._forward(data)
-        # for seq in self.model:
-        #     for layer in seq:
-        #         if hasattr(layer, 'weight'):
-        #             if layer.weight.grad is not None:
-        #                 print(layer.weight.grad.sum())
 
-        print(loss)
         return {'loss': loss}
 
     def training_epoch_end(self, outputs):
@@ -450,13 +488,13 @@ class SiameseHyperbolic(pl.LightningModule):
         # avg_ri = torch.stack([x['ri'] for x in outputs]).mean()
         self.logger.experiment.add_scalar("Loss/Train", avg_loss, self.current_epoch)
         # self.logger.experiment.add_scalar("RandScore/Train", avg_ri, self.current_epoch)
-
+        # print(avg_loss)
         return {'loss': avg_loss}
 
     def validation_step(self, data, batch_idx):
         maybe_plot = self.plot_interval > 0 and ((self.current_epoch + 1) % self.plot_interval == 0)
         x, val_loss, linkage_matrix = self._forward(data, decode=maybe_plot)
-
+        # print("val_loss", val_loss)
         if maybe_plot:
             y = data.y
             batch = data.batch
@@ -465,13 +503,19 @@ class SiameseHyperbolic(pl.LightningModule):
             val_ri_score = ri(y[batch == 0].cpu(), y_pred)
             # plot prediction
             plt.figure(figsize=(20, 5))
-            ax = plt.subplot(1, 3, 1)
-            plot_clustering(x, y)
+            ax = plt.subplot(1, 4, 1)
+            plot_clustering(data.x, y)
             ax.set_title('Ground Truth')
-            ax = plt.subplot(1, 3, 2)
-            plot_clustering(x.cpu(), y_pred)
+            ax = plt.subplot(1, 4, 2)
+            plot_clustering(data.x.cpu(), y_pred)
             ax.set_title(f'Clustering - RI Score {val_ri_score}')
-            ax = plt.subplot(1, 3, 3)
+            ax = plt.subplot(1, 4, 3)
+            plot_clustering(self._rescale_emb(x), y_pred)
+            bounds = self.rescale.detach().clamp_min(1e-2).clamp_max(1.0).item()
+            ax.set_xlim(bounds*(-1-1e-1), bounds*(1+1e-1))
+            ax.set_ylim(bounds*(-1-1e-1), bounds*(1+1e-1))
+            ax.set_title(f"Embeddings {self.rescale}")
+            ax = plt.subplot(1, 4, 4)
             plot_dendrogram(linkage_matrix[0], n_clusters=n_clusters)
             ax.set_title('Dendrogram')
             plt.tight_layout()
@@ -489,7 +533,33 @@ class SiameseHyperbolic(pl.LightningModule):
         return {'val_loss': avg_loss}
 
     def test_step(self, data, batch_idx):
-        return self._forward(data)
+        x, test_loss, linkage_matrix = self._forward(data, decode=True)
+
+        y = data.y
+        batch = data.batch
+        n_clusters = y.max() + 1
+        y_pred = fcluster(linkage_matrix[0], n_clusters, criterion='maxclust') - 1
+        val_ri_score = ri(y[batch == 0].cpu(), y_pred)
+        # plot prediction
+        plt.figure(figsize=(20, 5))
+        ax = plt.subplot(1, 4, 1)
+        plot_clustering(data.x, y)
+        ax.set_title('Ground Truth')
+        ax = plt.subplot(1, 4, 2)
+        plot_clustering(data.x.cpu(), y_pred)
+        ax.set_title(f'Clustering - RI Score {val_ri_score}')
+        ax = plt.subplot(1, 4, 3)
+        plot_clustering(self._rescale_emb(x), y_pred)
+        ax.set_xlim(-1-1e-1, 1+1e-1)
+        ax.set_ylim(-1-1e-1, 1+1e-1)
+        ax.set_title(f"Embeddings {self.rescale}")
+        ax = plt.subplot(1, 4, 4)
+        plot_dendrogram(linkage_matrix[0], n_clusters=n_clusters)
+        ax.set_title('Dendrogram')
+        plt.tight_layout()
+        plt.show()
+
+        return {'test_loss': test_loss}
 
     def test_epoch_end(self, outputs):
         avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
