@@ -12,13 +12,12 @@ from torch.optim import Adam, lr_scheduler
 from torch_geometric.nn import knn_graph
 from torch_geometric.nn.conv import DynamicEdgeConv
 from torch_geometric.data import Batch
-from pytorch_metric_learning import losses, distances, regularizers, reducers
+from pytorch_metric_learning import losses, distances, regularizers
 from pytorch_metric_learning.utils import loss_and_miner_utils as lmu
 from sklearn.metrics.cluster import adjusted_rand_score as ri
 
 from smutsia.utils.viz import plot_graph, plot_clustering, plot_dendrogram
 from smutsia.nn.distances import HyperbolicLCA
-from smutsia.graph.hierarchy.linkage import nn_merge_uf_fast_np
 from smutsia.nn.optim import RAdam
 from ..pool.ultrametric_pool import subdominant_ultrametric
 from . import TransformNet
@@ -353,7 +352,7 @@ class SiameseUltrametric(pl.LightningModule):
 
 
 class SiameseHyperbolic(pl.LightningModule):
-    def __init__(self, nn: torch.nn.Module, temperature=0.01, margin: float = 1.0, init_rescale=1e-3,  max_scale=1. - 1e-3,
+    def __init__(self, nn: torch.nn.Module, temperature=0.01, margin: float = 1.0, init_rescale=1e-3,  max_scale=1.-1e-3,
                  lr=1e-3, plot_interval: int = -1):
         super(SiameseHyperbolic, self).__init__()
         self.model = nn
@@ -363,16 +362,15 @@ class SiameseHyperbolic(pl.LightningModule):
         self.margin = margin
         self.distance_lca = HyperbolicLCA()
         self.distace_cos = distances.CosineSimilarity()
-        self.loss_triplet_cos = losses.TripletMarginLoss(distance=distances.CosineSimilarity(), margin=self.margin,
+        self.loss_triplet_cos = losses.TripletMarginLoss(distance=self.distace_cos, margin=self.margin,
                                                          embedding_regularizer=regularizers.LpRegularizer())
-
         # learning rate
         self.lr = lr
         self.plot_interval = plot_interval
 
     def _rescale_emb(self, embeddings):
         """Normalize leaves embeddings to have the lie on a diameter."""
-        min_scale = 1e-2 #self.init_size
+        min_scale = 1e-2  # self.init_size
         max_scale = self.max_scale
         return F.normalize(embeddings, p=2, dim=1) * self.rescale.clamp_min(min_scale).clamp_max(max_scale)
 
@@ -383,7 +381,6 @@ class SiameseHyperbolic(pl.LightningModule):
         else:
             x_samples = x
             y_samples = y
-
 
         indices_tuple = lmu.convert_to_triplets(None, y_samples, t_per_anchor='all')
 
@@ -411,15 +408,7 @@ class SiameseHyperbolic(pl.LightningModule):
         total = torch.sum(similarities, dim=-1, keepdim=True) - w_ord
         loss_triplet_lca = torch.mean(total)
 
-        #
-        # # return loss_triplet_lca
-        #
-        # # base triplet margin
-        # current_margins = self.distace_lp.margin(wij, wik)
-        # loss_triplet_lp = F.relu(-current_margins + self.margin).mean()
         return self.loss_triplet_cos(x_samples, y_samples) + loss_triplet_lca
-        # return  loss_triplet_lp
-        # return loss_triplet_lp + loss_triplet_lca
 
     def _decode_tree(self, leaves_embeddings):
         """Build a binary tree (nx graph) from leaves' embeddings. Assume points are normalized to same radius."""
@@ -444,7 +433,7 @@ class SiameseHyperbolic(pl.LightningModule):
         for i in range(batch_size):
             loss += self._loss(x, y, labels)
             if decode:
-                Z = self._decode_tree(x[batch==i])
+                Z = self._decode_tree(x[batch == i])
                 linkage_mat.append(Z)
 
         loss = loss / batch_size
@@ -488,7 +477,7 @@ class SiameseHyperbolic(pl.LightningModule):
         # avg_ri = torch.stack([x['ri'] for x in outputs]).mean()
         self.logger.experiment.add_scalar("Loss/Train", avg_loss, self.current_epoch)
         # self.logger.experiment.add_scalar("RandScore/Train", avg_ri, self.current_epoch)
-        # print(avg_loss)
+
         return {'loss': avg_loss}
 
     def validation_step(self, data, batch_idx):
