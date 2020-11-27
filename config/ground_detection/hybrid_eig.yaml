@@ -1,0 +1,14 @@
+name: "hybrid"
+threshold: 0.20
+knn_graph: 10
+spherical_graph:
+  nb_layers: 64
+  res_yaw: 2048
+normals:
+  method_normals: 'pca'
+  knn_normal: 10
+merge:
+  cc_min_size: 20
+  ransac_max_dist: 0.20
+  ransac_max_it: 100
+  inter_perc: 0.5
