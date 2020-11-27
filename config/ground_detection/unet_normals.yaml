@@ -1,6 +1,6 @@
 name: "unet_gt_normals"
 projection:
-  proj_type: 'layers'
+  proj_type: 'conv'
   res_yaw: 2048
   nb_layers: 64
 img_means: #range,z,signal
