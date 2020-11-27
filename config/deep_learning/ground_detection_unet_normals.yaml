@@ -11,7 +11,7 @@ model:
 add_normals: True
 sensor:
     name: "HDL64"
-    proj_type: "layers" # projective
+    proj_type: "conv" # projective
     nb_layers: 64
     fov_up: 85.0
     fov_down: 115.0
