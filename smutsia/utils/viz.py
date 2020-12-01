@@ -7,7 +7,8 @@ import matplotlib.colors as mc
 from matplotlib import pyplot as plt
 from matplotlib.collections import LineCollection
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from scipy.cluster.hierarchy import dendrogram, set_link_color_palette
+from scipy.cluster.hierarchy import dendrogram, fcluster, set_link_color_palette
+from sklearn.metrics.cluster import adjusted_rand_score as ri
 from scipy.sparse import find
 
 COLORS  = np.array(['#377eb8', '#ff7f00', '#4daf4a', '#a65628', '#f781bf', '#984ea3', '#999999', '#e41a1c', '#dede00'])
@@ -247,6 +248,45 @@ def plot_graph(x, edge_index, edge_col):
     plt.axis('equal')
     ax.scatter(xout[:, 0], xout[:, 1], s=20, c='w', edgecolors='k')
 
+
+def plot_hyperbolic_eval(x, y, emb, linkage_matrix, emb_scale, y_pred=None, k=-1):
+    """
+    Auxiliary functions to plot results about hyperbolic clustering
+    """
+    n_clusters = y.max() + 1
+
+    if k == -1:
+        k = n_clusters
+
+    if y_pred is None:
+        y_pred = fcluster(linkage_matrix, n_clusters, criterion='maxclust') - 1
+
+    k_ri_score = ri(y, y_pred)
+
+    if k != n_clusters:
+        y_pred_at_n = fcluster(linkage_matrix, n_clusters, criterion='maxclust') - 1
+        val_ri_score = ri(y, y_pred_at_n)
+    else:
+        val_ri_score = k_ri_score
+
+    # plot prediction
+    plt.figure(figsize=(20, 5))
+    ax = plt.subplot(1, 4, 1)
+    plot_clustering(x, y)
+    ax.set_title('Ground Truth')
+    ax = plt.subplot(1, 4, 2)
+    plot_clustering(x, y_pred)
+    ax.set_title(f'Pred: RI@{k}: {k_ri_score:.3f}; RI@{n_clusters}: {val_ri_score:.3f}')
+    ax = plt.subplot(1, 4, 3)
+    plot_clustering(emb, y_pred)
+    ax.set_xlim(-1 - 1e-1, 1 + 1e-1)
+    ax.set_ylim(-1 - 1e-1, 1 + 1e-1)
+    ax.set_title(f"Embeddings {emb_scale}")
+    ax = plt.subplot(1, 4, 4)
+    plot_dendrogram(linkage_matrix, n_clusters=k)
+    ax.set_title(f'Dendrogram {k}-clusters')
+    plt.tight_layout()
+    plt.show()
 
 def inspect_missclass(im_class, im_pred, selected_id, im_max, im_min, savedir, filename):
     """128 ground and bike! other bikes with their label.  The rest 0. We
