@@ -200,6 +200,8 @@ class HyperbolicLCA(BaseDistance):
         assert not self.normalize_embeddings
 
     def compute_mat(self, query_emb, ref_emb):
+        device = query_emb.device
+
         if ref_emb is None:
             ref_emb = query_emb
 
@@ -214,8 +216,8 @@ class HyperbolicLCA(BaseDistance):
         m = y.shape[0]
 
         # the output must be a matrix NxM
-        dox = hyp_dist_o(x) + torch.zeros(1, m)
-        doy = hyp_dist_o(y).T + torch.zeros(n, 1)
+        dox = hyp_dist_o(x) + torch.zeros(1, m, device=device)
+        doy = hyp_dist_o(y).T + torch.zeros(n, 1, device=device)
         mapd_y = mobius_transf(x, y, pairwise=False)
         mid_points = get_midpoint_o(mapd_y)
         m = inverse_mobius_transf(x, mid_points, pairwise=False)

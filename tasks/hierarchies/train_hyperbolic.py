@@ -15,11 +15,13 @@ if __name__ == "__main__":
     parser.add_argument('--num_samples', default=100, type=int, help='number of samples in training set')
     parser.add_argument('--max_points', default=300, type=int, help='number of points in each sample')
     parser.add_argument('--num_labels', default=0.3, type=float, help='number/ratio of labels to use in each sample')
+    parser.add_argument('--batch', default=1, type=int, help='batch size')
     parser.add_argument('--epochs', default=100, type=int, help='number of epochs')
     parser.add_argument('--lr', default=1e-3, type=float, help='learning rate')
     parser.add_argument('--hidden', default=64, type=int, help='number of hidden features')
     parser.add_argument('--triplets', default=30, type=int, help='number of points to sample to generate triplets')
     parser.add_argument('--margin', default=1.0, type=float, help='margin value to use in triplet loss')
+    parser.add_argument('--temperature', default=0.05, type=float, help='rescale softmax value used in the hyphc loss')
     parser.add_argument('--patience', default=50, type=int, help='patience value for early stopping')
     parser.add_argument('--plot', default=-1, type=int, help='interval in which we plot prediction on validation batch')
     parser.add_argument('--gpu', default=0, type=int, help='use gpu')
@@ -29,38 +31,44 @@ if __name__ == "__main__":
     epochs = args.epochs
     num_samples = args.num_samples
     max_points = args.max_points
+    batch = args.batch
     hidden = args.hidden
     lr = args.lr
     margin = args.margin
+    temperature = args.temperature
     patience = args.patience
-    plot = args.plot
+    plot_every = args.plot
     gpu = args.gpu
     num_labels = args.num_labels
 
     # load dataset
-    noise = (0.12, 0.15)
+    noise = (0.12, 0.12)
     # number of points in each sample
     seed = 5
     train_dataset = ToyDatasets(name=dataname, length=num_samples, noise=noise, max_samples=max_points, num_labels=num_labels, seed=seed)
     valid_dataset = ToyDatasets(name=dataname, length=10, noise=noise, max_samples=max_points, seed=2, num_labels=num_labels)
-    test_dataset = ToyDatasets(name=dataname, length=1, noise=noise, max_samples=max_points, seed=seed, num_labels=num_labels)
+    test_dataset = ToyDatasets(name=dataname, length=10, noise=noise, max_samples=max_points, seed=19, num_labels=num_labels)
 
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=8)
+    train_loader = DataLoader(train_dataset, batch_size=batch, shuffle=False, num_workers=8)
     valid_loader = DataLoader(valid_dataset, batch_size=1, shuffle=False, num_workers=8)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=8)
 
     # todo parametrize this
-    nn = FeatureExtraction(in_channels=2, hidden_features=hidden, out_features=hidden, k=30, transformer=False)
+    nn = FeatureExtraction(in_channels=2, hidden_features=hidden, out_features=2, k=30, transformer=False, cosine=True)
     # embedder = MLP([hidden, hidden, 2], negative_slope=0.2)
     model = SiameseHyperbolic(nn=nn,
-                              # embedder=embedder,
+                              embedder=None,
                               margin=margin,
-                              plot_interval=plot)
+                              temperature=temperature,
+                              plot_every=plot_every)
 
     logger = TensorBoardLogger('hyperbolic', name=dataname)
     logger.log_hyperparams({'dataset': dataname,
                             'hidden': hidden,
                             'max_epochs': epochs,
-                            'margin': margin})
+                            'batch': batch,
+                            'margin': margin,
+                            'temperature': temperature,})
 
     savedir = os.path.join(logger.save_dir, logger.name, 'version_' + str(logger.version), 'checkpoints')
     # call backs for trainer
@@ -82,4 +90,4 @@ if __name__ == "__main__":
 
     print("End Training")
 
-    # trainer.test(model, valid_loader)
+    trainer.test(model, test_loader)
