@@ -29,12 +29,13 @@ from .. import MLP
 
 class FeatureExtraction(torch.nn.Module):
     def __init__(self, in_channels: int, out_features: int, hidden_features: int, k: int, transformer: bool = False,
-                 cosine=False):
+                 negative_slope : float = 0.2, dropout=0.0, cosine=False):
         super(FeatureExtraction, self).__init__()
         self.in_channels = in_channels
         self.hidden_features = hidden_features
         self.out_features = out_features
         self.k = k
+        self.negative_slope = negative_slope
         self.cosine = cosine
         self.transformer = transformer
 
@@ -42,19 +43,19 @@ class FeatureExtraction(torch.nn.Module):
             self.tnet = TransformNet()
 
         self.conv1 = DynamicEdgeConv(
-            nn=MLP([2 * in_channels, hidden_features], negative_slope=0.2),
+            nn=MLP([2 * in_channels, hidden_features], dropout=dropout, negative_slope=self.negative_slope),
             k=self.k,
-            cosine=False,
+            cosine=self.cosine,
         )
         self.conv2 = DynamicEdgeConv(
-            nn=MLP([2 * hidden_features, hidden_features], negative_slope=0.2),
+            nn=MLP([2 * hidden_features, hidden_features], dropout=dropout, negative_slope=self.negative_slope),
             k=self.k,
-            cosine=False,
+            cosine=self.cosine,
         )
         self.conv3 = DynamicEdgeConv(
-            nn=MLP([2 * hidden_features, out_features], negative_slope=0.2),
+            nn=MLP([2 * hidden_features, out_features], dropout=dropout, negative_slope=self.negative_slope),
             k=self.k,
-            cosine=False,
+            cosine=self.cosine,
         )
 
     def forward(self, x, batch=None):
@@ -395,8 +396,8 @@ class SiameseHyperbolic(pl.LightningModule):
         plot validation value every #plot_every epochs
 
     """
-    def __init__(self, nn: torch.nn.Module, embedder: Union[torch.nn.Module, None], sim_distance: str ='cosine',
-                 temperature: float = 0.05,
+    def __init__(self, nn: torch.nn.Module, embedder: Union[torch.nn.Module, None],
+                 sim_distance: str ='cosine', temperature: float = 0.05,
                  margin: float = 1.0, init_rescale: float = 1e-3, max_scale: float = 1.-1e-3, lr: float = 1e-3,
                  patience: int = 20, factor: float = 0.5, min_lr: float = 1e-4,
                  plot_every: int = -1):
@@ -413,8 +414,7 @@ class SiameseHyperbolic(pl.LightningModule):
         else:
             self.distace_sim = distances.CosineSimilarity()
 
-        self.loss_triplet_sim = losses.TripletMarginLoss(distance=self.distace_sim, margin=self.margin,
-                                                         embedding_regularizer=regularizers.LpRegularizer())
+        self.loss_triplet_sim = losses.TripletMarginLoss(distance=self.distace_sim, margin=self.margin)
         print("MARGIN", self.margin)
         # learning rate
         self.lr = lr
@@ -422,6 +422,7 @@ class SiameseHyperbolic(pl.LightningModule):
         self.factor = factor
         self.min_lr = min_lr
         self.plot_interval = plot_every
+        self.plot_step = 0
 
     def _rescale_emb(self, embeddings):
         """Normalize leaves embeddings to have the lie on a diameter."""
@@ -527,14 +528,13 @@ class SiameseHyperbolic(pl.LightningModule):
         x, loss_triplet, loss_hyphc, link_mat = self(x=x, y=y, labels=labels, batch=batch, decode=decode)
 
         return x, loss_triplet, loss_hyphc, link_mat
-        return x, loss_triplet, loss_hyphc, link_mat
 
     def _get_optimal_k(self, y, linkage_matrix):
         best_ri = 0.0
         n_clusters = y.max() + 1
         best_k = 0
         best_pred = None
-        for k in range(n_clusters, n_clusters+3):
+        for k in range(n_clusters, n_clusters+5):
             y_pred = fcluster(linkage_matrix, k, criterion='maxclust') - 1
             k_ri = ri(y, y_pred)
             if k_ri > best_ri:
@@ -542,7 +542,7 @@ class SiameseHyperbolic(pl.LightningModule):
                 best_k = k
                 best_pred = y_pred
 
-        return best_pred, best_k
+        return best_pred, best_k, best_ri
 
     def configure_optimizers(self):
         optim = RAdam(self.parameters(), lr=self.lr)
@@ -573,24 +573,36 @@ class SiameseHyperbolic(pl.LightningModule):
         x, val_loss_triplet, val_loss_hyphc, linkage_matrix = self._forward(data, decode=maybe_plot)
         val_loss = val_loss_triplet + val_loss_hyphc
 
+        fig = None
+        best_ri = 0.0
         if maybe_plot:
-            y_pred, k = self._get_optimal_k(data.y.detach().cpu().numpy(), linkage_matrix[0])
-            plot_hyperbolic_eval(x=data.x.detach().cpu(),
-                                 y=data.y.detach().cpu(),
-                                 y_pred=y_pred,
-                                 emb=self._rescale_emb(x).detach().cpu(),
-                                 linkage_matrix=linkage_matrix[0],
-                                 emb_scale=self.rescale.item(),
-                                 k=k)
+            y_pred, k, best_ri = self._get_optimal_k(data.y.detach().cpu().numpy(), linkage_matrix[0])
+            fig = plot_hyperbolic_eval(x=data.x.detach().cpu(),
+                                       y=data.y.detach().cpu(),
+                                       y_pred=y_pred,
+                                       emb=self._rescale_emb(x).detach().cpu(),
+                                       linkage_matrix=linkage_matrix[0],
+                                       emb_scale=self.rescale.item(),
+                                       k=k,
+                                       show=False)
 
-        return {'val_loss': val_loss}
+            self.logger.experiment.add_scalar("RandScore/Validation", best_ri, self.plot_step)
+            self.plot_step += 1
+
+        return {'val_loss': val_loss, 'figures': fig, 'best_ri': torch.tensor(best_ri)}
 
     def validation_epoch_end(self, outputs):
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        # avg_ri = torch.stack([x['val_ri'] for x in outputs]).mean()
-
         self.logger.experiment.add_scalar("Loss/Validation", avg_loss, self.current_epoch)
-        # self.logger.experiment.add_scalar("RandScore/Validation", avg_ri, self.current_epoch)
+        self.logger.log_metrics({'val_loss': avg_loss}, step=self.current_epoch)
+
+        figures = [x['figures'] for x in outputs if x['figures'] is not None]
+
+        for n, fig in enumerate(figures):
+            tag = n // 10
+            step = n % 10
+            self.logger.experiment.add_figure(f"Plots/Validation@Epoch:{self.current_epoch}:{tag}", figure=fig,
+                                              global_step=step)
 
         return {'val_loss': avg_loss}
 
@@ -598,16 +610,38 @@ class SiameseHyperbolic(pl.LightningModule):
         x, test_loss_triplet, test_loss_hyphc, linkage_matrix = self._forward(data, decode=True)
         test_loss = test_loss_hyphc + test_loss_triplet
 
-        plot_hyperbolic_eval(x=data.x.detach().cpu(),
-                             y=data.y.detach().cpu(),
-                             emb=self._rescale_emb(x).detach().cpu(),
-                             linkage_matrix=linkage_matrix[0],
-                             emb_scale=self.rescale.item())
+        y_pred_k, k, best_ri = self._get_optimal_k(data.y.detach().cpu().numpy(), linkage_matrix[0])
 
-        return {'test_loss': test_loss}
+        fig = plot_hyperbolic_eval(x=data.x.detach().cpu(),
+                                   y=data.y.detach().cpu(),
+                                   y_pred=y_pred_k,
+                                   emb=self._rescale_emb(x).detach().cpu(),
+                                   linkage_matrix=linkage_matrix[0],
+                                   emb_scale=self.rescale.item(),
+                                   k=k,
+                                   show=False)
+
+        n_clusters = data.y.max() + 1
+        y_pred = fcluster(linkage_matrix[0], n_clusters, criterion='maxclust') - 1
+        ri_score = ri(data.y.detach().cpu().numpy(), y_pred)
+
+        self.logger.experiment.add_scalar("Loss/Test", test_loss, batch_idx)
+        self.logger.experiment.add_scalar("RandScore/Test", ri_score, batch_idx)
+        tag = batch_idx // 10
+        step = batch_idx % 10
+        self.logger.experiment.add_figure(f"Plots/Test:{tag}", figure=fig, global_step=step)
+        self.logger.log_metrics({'ari@k': ri_score, 'ari': best_ri, 'best_k': k}, step=batch_idx)
+
+        return {'test_loss': test_loss, 'test_ri@k': torch.tensor(ri_score), 'test_ri': torch.tensor(best_ri) , 'k': torch.tensor(k, dtype=torch.float)}
 
     def test_epoch_end(self, outputs):
         avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
-        # avg_ri = torch.stack([x['test_ri'] for x in outputs]).mean()
+        avg_ri_k = torch.stack([x['test_ri@k'] for x in outputs]).mean()
+        avg_ri = torch.stack([x['test_ri'] for x in outputs]).mean()
+        avg_best_k = torch.stack([x['k'] for x in outputs]).mean()
+        std_best_k = torch.stack([x['k'] for x in outputs]).std()
 
-        return {'test_loss': avg_loss}
+        metrics = {'ari@k': avg_ri_k, 'ari': avg_ri, 'best_k': avg_best_k, 'std_k': std_best_k}
+        self.logger.log_metrics(metrics, step=len(outputs))
+
+        return {'test_loss': avg_loss, 'test_ri': avg_ri}
