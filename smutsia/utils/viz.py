@@ -249,7 +249,7 @@ def plot_graph(x, edge_index, edge_col):
     ax.scatter(xout[:, 0], xout[:, 1], s=20, c='w', edgecolors='k')
 
 
-def plot_hyperbolic_eval(x, y, emb, linkage_matrix, emb_scale, y_pred=None, k=-1):
+def plot_hyperbolic_eval(x, y, emb, linkage_matrix, emb_scale, y_pred=None, k=-1, show=True):
     """
     Auxiliary functions to plot results about hyperbolic clustering
     """
@@ -266,27 +266,41 @@ def plot_hyperbolic_eval(x, y, emb, linkage_matrix, emb_scale, y_pred=None, k=-1
     if k != n_clusters:
         y_pred_at_n = fcluster(linkage_matrix, n_clusters, criterion='maxclust') - 1
         val_ri_score = ri(y, y_pred_at_n)
+        n_plots = 5
     else:
         val_ri_score = k_ri_score
-
+        n_plots = 4
     # plot prediction
-    plt.figure(figsize=(20, 5))
-    ax = plt.subplot(1, 4, 1)
+    idx = 1
+    fig = plt.figure(figsize=(5 * n_plots, 5))
+    ax = plt.subplot(1, n_plots, idx)
     plot_clustering(x, y)
     ax.set_title('Ground Truth')
-    ax = plt.subplot(1, 4, 2)
+    idx += 1
+    ax = plt.subplot(1, n_plots, idx)
     plot_clustering(x, y_pred)
-    ax.set_title(f'Pred: RI@{k}: {k_ri_score:.3f}; RI@{n_clusters}: {val_ri_score:.3f}')
-    ax = plt.subplot(1, 4, 3)
+    ax.set_title(f'Pred: RI@{k}: {k_ri_score:.3f}')
+    if k != n_clusters:
+        idx += 1
+        ax = plt.subplot(1, n_plots, idx)
+        plot_clustering(x, y_pred_at_n)
+        ax.set_title(f'Pred {n_clusters}: RI@{n_clusters}: {val_ri_score:.3f}')
+
+    idx += 1
+    ax = plt.subplot(1, n_plots, idx)
     plot_clustering(emb, y_pred)
     ax.set_xlim(-1 - 1e-1, 1 + 1e-1)
     ax.set_ylim(-1 - 1e-1, 1 + 1e-1)
     ax.set_title(f"Embeddings {emb_scale}")
-    ax = plt.subplot(1, 4, 4)
+    idx += 1
+    ax = plt.subplot(1, n_plots, idx)
     plot_dendrogram(linkage_matrix, n_clusters=k)
     ax.set_title(f'Dendrogram {k}-clusters')
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
+    else:
+        return fig
 
 def inspect_missclass(im_class, im_pred, selected_id, im_max, im_min, savedir, filename):
     """128 ground and bike! other bikes with their label.  The rest 0. We
