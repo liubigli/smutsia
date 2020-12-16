@@ -7,6 +7,17 @@ from smutsia.utils.arrays import cartesian_product
 
 c = np.arange(-1, 2)
 CENTERS = cartesian_product([c,c])
+np.random.seed(1)
+ANISOTROPICS = np.zeros((9, 2, 2))
+eigs = 2 * np.random.rand(9, 2) - 1
+np.random.seed(1)
+alphas = np.random.rand(9)
+CLUSTERS_STD = (1-alphas)*0.05 + (alphas)*0.16
+
+for i in range(9):
+    ANISOTROPICS[i, 0, 0] = eigs[i, 0]
+    ANISOTROPICS[i, 1, 1] = eigs[i, 1]
+
 
 def get_label_idx(y: np.ndarray, label_quantity: Union[int, float]):
     num_classes = np.unique(y).size
@@ -41,27 +52,37 @@ def sample_blobs(n_samples: int, cluster_std: float, num_blobs: int = 3, random_
     centers = CENTERS[idx_centers]
 
     x, y = make_blobs(n_samples, centers=centers, cluster_std=cluster_std, random_state=random_state)
-    return x, y
+    return x, y, idx_centers[y]
 
 
-def sample_varied(n_samples: int, cluster_std: float, num_blobs: int = 3, random_state: Union[int, None] = None):
+def sample_varied(n_samples: int, cluster_std: float = 0.0, num_blobs: int = 3, random_state: Union[int, None] = None):
 
-    cluster_std = (cluster_std - 0.1) * np.random.rand(num_blobs) + 0.1
     idx_centers = np.random.choice(np.arange(len(CENTERS)), num_blobs, replace=False)
+
+    cluster_std = CLUSTERS_STD[idx_centers]
     centers = CENTERS[idx_centers]
 
     x, y = make_blobs(n_samples, centers=centers, cluster_std=cluster_std, random_state=random_state)
-    return x, y
+    return x, y, idx_centers[y]
 
 
 def sample_aniso(n_samples: int, cluster_std: float, num_blobs: int = 3, anisotropic_transf: Union[List, None] = None,
                  random_state: Union[int, None] = None):
 
+    x, y, idx_centers = sample_blobs(n_samples, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
     if anisotropic_transf is None:
         anisotropic_transf = [[0.6, -0.6], [-0.4, 0.8]]
-    x, y = sample_blobs(n_samples, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
+        # centers = np.unique(idx_centers)
+        # for c in centers:
+        #     x[idx_centers==c] = np.dot(x[idx_centers==c] - x[idx_centers==c].mean(), ANISOTROPICS[c]) + x[idx_centers==c]
+    # else:
+    centers = np.unique(idx_centers)
+    for c in centers:
+        x[idx_centers==c] = np.dot(x[idx_centers==c] - x[idx_centers==c].mean(), anisotropic_transf) + x[idx_centers==c]
+
     x = np.dot(x, anisotropic_transf)
-    return x, y
+
+    return x, y, idx_centers
 
 
 def sample_moons(n_samples: int, noise: float, shift_x: float = 2.0, shift_y: float = 2.0,
@@ -93,6 +114,9 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
         noise: Union[float, Tuple[float, float]]
             noise value to use or interval of noises to use
 
+        cluster_std: float
+            standard deviation value for gaussian random variables that generates datasets in blobs, varied, aniso
+
         num_labels: Union[int, flat]
             number / percentage of labels to use for the semi-supervised tasks
 
@@ -101,6 +125,9 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
 
         seed: int
             if seed > 0 then we use a seed to generate always the same dataset
+
+        num_blobs: int
+            number of blobs in sample of datasets blobs, varied, aniso
 
     Returns
     -------
@@ -135,6 +162,7 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
 
         random_state = np.random.randint(1024) if seeds is None else seeds[n]
 
+        idx_centers = None
         # draw a sample according to the dataset name
         if name == 'circles':
             x, y = sample_circles(num_points, sample_noise, random_state=random_state)
@@ -142,11 +170,11 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
             # we halve samples before passing because the points are copied inside the function
             x, y = sample_moons(num_points // 2, sample_noise, random_state=random_state)
         elif name == 'blobs':
-            x, y = sample_blobs(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
+            x, y, idx_centers = sample_blobs(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
         elif name == 'varied':
-            x, y = sample_varied(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
+            x, y, idx_centers = sample_varied(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
         elif name == 'aniso':
-            x, y = sample_aniso(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
+            x, y, idx_centers = sample_aniso(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
         else:
             raise KeyError(f"Dataset name {name} not known. "
                            f"Possible choices are 'circles', 'moons', 'blobs', 'varied', 'aniso'")
@@ -155,7 +183,10 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
         x, y, lab_idx = torch.Tensor(x), torch.from_numpy(y), torch.from_numpy(lab_idx)
         labels = torch.zeros_like(y, dtype=torch.bool)
         labels[lab_idx] = True
-        data.append(Data(x=x, y=y, labels=labels))
+        if idx_centers is not None:
+            data.append(Data(x=x, y=y, labels=labels, idx_centers=idx_centers))
+        else:
+            data.append(Data(x=x, y=y, labels=labels))
 
     return data
 
@@ -189,9 +220,9 @@ class ToyDatasets(InMemoryDataset):
             If you want generate always the same dataset use a value equal or greater than 0
     """
     def __init__(self, length: int, name: str, num_labels: Union[float, int],
-                 noise: Union[float, Tuple[float, float]] = 0.05, cluster_std: float = 0.1,
-                 max_samples: int = 300, random_length: bool = True, seed: int = -1):
-        super(ToyDatasets, self).__init__('.', None, None, None)
+                 noise: Union[float, Tuple[float, float]] = 0.05, cluster_std: float = 0.1, num_blobs: int = 3,
+                 max_samples: int = 300, random_length: bool = True, seed: int = -1, **kwargs):
+        super(ToyDatasets, self).__init__('.', **kwargs)
         self.length = length
         self.name = name.lower()
         self.num_labels = num_labels
@@ -200,9 +231,10 @@ class ToyDatasets(InMemoryDataset):
         self.max_samples = max_samples
         self.random_length = random_length
         self.seed = seed
+        self.num_blobs = num_blobs
 
         data = generate_dataset(name=self.name, total_samples=self.length, num_labels=self.num_labels,
                                 max_points=self.max_samples, noise=self.noise, cluster_std=self.cluster_std,
-                                random_length=self.random_length, seed=self.seed)
+                                num_blobs=self.num_blobs, random_length=self.random_length, seed=self.seed)
 
         self.data, self.slices = self.collate(data)
