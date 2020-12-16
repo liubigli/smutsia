@@ -3,9 +3,10 @@ from torch_geometric.typing import OptTensor, PairTensor, PairOptTensor, Adj
 
 import torch
 from torch import Tensor
+from torch.nn.init import xavier_uniform_
 from torch_geometric.nn.conv import MessagePassing
 
-from torch_geometric.nn.inits import reset
+from smutsia.nn.init import init_weights
 
 try:
     from torch_cluster import knn
@@ -48,7 +49,8 @@ class DynamicEdgeConv(MessagePassing):
         self.reset_parameters()
 
     def reset_parameters(self):
-        reset(self.nn)
+        init_weights(self.nn, xavier_uniform_)
+        # reset(self.nn)
 
     def forward(
             self, x: Union[Tensor, PairTensor],
