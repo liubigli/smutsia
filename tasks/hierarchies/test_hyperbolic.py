@@ -12,8 +12,8 @@ from smutsia.utils.data import ToyDatasets
 from smutsia.utils.logger import  MyTensorBoardLogger
 
 
-def load_weights(model, weights):
-    ckpt = torch.load(weights)
+def load_weights(model, weights, map_location='cpu'):
+    ckpt = torch.load(weights, map_location=map_location)
     model.load_state_dict(ckpt['state_dict'])
     print(weights)
 
