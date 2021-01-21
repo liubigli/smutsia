@@ -1,14 +1,15 @@
 import torch
+import math
 import numpy as np
 import pytorch_lightning as pl
 from typing import Union
 
 from scipy.cluster.hierarchy import fcluster, linkage
 
-from torch.nn import functional as F
+from torch.nn import functional as F, Linear, Sequential as Seq, BatchNorm1d
 from torch.optim import Adam, lr_scheduler
 from torch_geometric.data import Batch
-from pytorch_metric_learning import losses, distances
+from pytorch_metric_learning import losses, distances, regularizers
 from pytorch_metric_learning.utils import loss_and_miner_utils as lmu
 from sklearn.metrics.cluster import adjusted_rand_score as ri
 
@@ -21,6 +22,32 @@ from smutsia.nn.conv import DynamicEdgeConv
 from smutsia.nn.optim import RAdam
 from . import TransformNet
 from .. import MLP
+
+
+class ComplexFeatExtract(torch.nn.Module):
+    def __init__(self, in_channels: int, hidden_features: int, negative_slope: float = 0.2, bias: bool = True,
+                 dropout: float = 0.0, init_gamma: float = math.pi / 2):
+        super(ComplexFeatExtract, self).__init__()
+
+        self.gamma = torch.nn.Parameter(torch.Tensor([init_gamma]), requires_grad=True)
+
+        self.mlp1 = MLP([in_channels, hidden_features, hidden_features], negative_slope=negative_slope,
+                       dropout=dropout, bias=bias)
+
+        self.mlp2 = MLP([in_channels, hidden_features, hidden_features], negative_slope=negative_slope, dropout=dropout,
+                        bias=bias)
+        self.linear = Seq(
+                Linear(in_features=hidden_features, out_features=1, bias=True),
+                BatchNorm1d(1)
+        )
+
+    def forward(self, x):
+        x = self.mlp1(x)
+        # x2 = self.mlp2(x)
+        # return torch.cat([x1, x2], dim=1)
+        x = self.linear(x)
+        # x = (x - x.min()) / (x.max() - x.min())
+        return torch.cat([torch.cos(self.gamma*x), torch.sin(self.gamma*x)], dim=1)
 
 
 class FeatureExtraction(torch.nn.Module):
@@ -128,12 +155,23 @@ class SiameseHyperbolic(pl.LightningModule):
         self.max_scale = max_scale
         self.margin = margin
         self.distance_lca = HyperbolicLCA()
-        if sim_distance == 'hyperbolic':
-            self.distace_sim = HyperbolicDistance()
-        else:
-            self.distace_sim = distances.CosineSimilarity()
 
-        self.loss_triplet_sim = losses.TripletMarginLoss(distance=self.distace_sim, margin=self.margin,)
+        if sim_distance == 'cosine':
+            self.distace_sim = distances.CosineSimilarity()
+            # self.loss_triplet_sim = losses.TripletMarginLoss(distance=self.distace_sim, margin=self.margin)
+        elif sim_distance == 'hyperbolic':
+            self.distace_sim = HyperbolicDistance()
+            # self.loss_triplet_sim = losses.TripletMarginLoss(distance=self.distace_sim, margin=self.margin)
+        elif sim_distance == 'euclidean':
+            self.distace_sim = distances.LpDistance()
+            # self.loss_triplet_sim = losses.TripletMarginLoss(distance=self.distace_sim, margin=self.margin,
+            #                                                  embedding_regularizer=regularizers.LpRegularizer())
+        else:
+            raise ValueError(f"The option {sim_distance} is not available for sim_distance. The only available are ['cosine', 'euclidean', 'hyperbolic'].")
+
+        self.loss_triplet_sim = losses.TripletMarginLoss(distance=self.distace_sim, margin=self.margin)
+
+
         print("MARGIN", self.margin)
         # learning rate
         self.lr = lr
@@ -158,7 +196,7 @@ class SiameseHyperbolic(pl.LightningModule):
             x_feat_samples = x_feat
             x_emb_samples = x_emb
             y_samples = y
-
+        # todo: change the value of parameter t_per_anchor from 'all' to a int value as for example 100
         indices_tuple = lmu.convert_to_triplets(None, y_samples, t_per_anchor='all')
 
         anchor_idx, positive_idx, negative_idx = indices_tuple
@@ -166,8 +204,14 @@ class SiameseHyperbolic(pl.LightningModule):
         if len(anchor_idx) == 0:
             return self.zero_losses()
         # #
-        mat_sim = 0.5 * (1 + self.distace_sim(project(x_feat_samples)))
-        # mat_sim = self.distace_sim(project(x_feat_samples))
+        if isinstance(self.distace_sim, distances.CosineSimilarity):
+            mat_sim = 0.5 * (1 + self.distace_sim(x_feat_samples))
+        else:
+            # mat_sim = 0.5 * (1 + self.distace_sim(project(x_emb_samples)))
+            mat_sim = torch.exp(-self.distace_sim(x_feat_samples))
+            # print("euclidean", mat_sim.max(), mat_sim.min())
+        #
+        # mat_sim = self.distace_sim(x_feat_samples)
         mat_lca = self.distance_lca(self._rescale_emb(x_emb_samples))
         # print(f"sim values: max {mat_sim.max()}, min: {mat_sim.min()}")
         wij = mat_sim[anchor_idx, positive_idx]
@@ -278,7 +322,7 @@ class SiameseHyperbolic(pl.LightningModule):
 
     def training_step(self, data, batch_idx):
         x, loss_triplet, loss_hyphc, _ = self._forward(data)
-        loss = loss_triplet+loss_hyphc
+        loss = loss_triplet + loss_hyphc
         return {'loss': loss, 'progress_bar': {'triplet': loss_triplet, 'hyphc': loss_hyphc}}
 
     def training_epoch_end(self, outputs):
@@ -304,10 +348,11 @@ class SiameseHyperbolic(pl.LightningModule):
         best_ri = 0.0
         if maybe_plot:
             y_pred, k, best_ri = get_optimal_k(data.y.detach().cpu().numpy(), linkage_matrix[0])
-            acc_score, pu_score, nmi_score, ri_score = eval_clustering(y_true=data.y.detach().cpu(), Z=linkage_matrix[0])
+            pu_score, nmi_score, ri_score = eval_clustering(y_true=data.y.detach().cpu(), Z=linkage_matrix[0])
 
             fig = plot_hyperbolic_eval(x=data.x.detach().cpu(),
                                        y=data.y.detach().cpu(),
+                                       labels=data.labels.detach().cpu(),
                                        y_pred=y_pred,
                                        emb=self._rescale_emb(x).detach().cpu(),
                                        linkage_matrix=linkage_matrix[0],
@@ -316,7 +361,7 @@ class SiameseHyperbolic(pl.LightningModule):
                                        show=False)
 
             self.logger.experiment.add_scalar("RandScore/Validation", best_ri, self.plot_step)
-            self.logger.experiment.add_scalar("AccScore@k/Validation", acc_score, self.plot_step)
+            # self.logger.experiment.add_scalar("AccScore@k/Validation", acc_score, self.plot_step)
             self.logger.experiment.add_scalar("PurityScore@k/Validation", pu_score, self.plot_step)
             self.logger.experiment.add_scalar("NMIScore@k/Validation", nmi_score, self.plot_step)
             self.logger.experiment.add_scalar("RandScore@k/Validation", ri_score, self.plot_step)
@@ -344,10 +389,11 @@ class SiameseHyperbolic(pl.LightningModule):
         test_loss = test_loss_hyphc + test_loss_triplet
 
         y_pred_k, k, best_ri = get_optimal_k(data.y.detach().cpu().numpy(), linkage_matrix[0])
-        acc_score, pu_score, nmi_score, ri_score = eval_clustering(y_true=data.y.detach().cpu(), Z=linkage_matrix[0])
+        pu_score, nmi_score, ri_score = eval_clustering(y_true=data.y.detach().cpu(), Z=linkage_matrix[0])
 
         fig = plot_hyperbolic_eval(x=data.x.detach().cpu(),
                                    y=data.y.detach().cpu(),
+                                   labels=data.labels.detach().cpu(),
                                    y_pred=y_pred_k,
                                    emb=self._rescale_emb(x).detach().cpu(),
                                    linkage_matrix=linkage_matrix[0],
@@ -361,7 +407,7 @@ class SiameseHyperbolic(pl.LightningModule):
 
         self.logger.experiment.add_scalar("Loss/Test", test_loss, batch_idx)
         self.logger.experiment.add_scalar("RandScore/Test", best_ri,  batch_idx)
-        self.logger.experiment.add_scalar("AccScore@k/Test", acc_score,  batch_idx)
+        # self.logger.experiment.add_scalar("AccScore@k/Test", acc_score,  batch_idx)
         self.logger.experiment.add_scalar("PurityScore@k/Test", pu_score,  batch_idx)
         self.logger.experiment.add_scalar("NMIScore@k/Test", nmi_score,  batch_idx)
         self.logger.experiment.add_scalar("RandScore@k/Test", ri_score, batch_idx)
@@ -369,10 +415,10 @@ class SiameseHyperbolic(pl.LightningModule):
         tag = batch_idx // 10
         step = batch_idx % 10
         self.logger.experiment.add_figure(f"Plots/Test:{tag}", figure=fig, global_step=step)
-        self.logger.log_metrics({'ari@k': ri_score, 'acc@k':acc_score, 'purity@k':pu_score, 'nmi@k':nmi_score,
+        self.logger.log_metrics({'ari@k': ri_score, 'purity@k':pu_score, 'nmi@k':nmi_score,
                                  'ari': best_ri, 'best_k': k}, step=batch_idx)
 
-        return {'test_loss': test_loss, 'test_ri@k': torch.tensor(ri_score), 'test_acc@k': torch.tensor(acc_score),
+        return {'test_loss': test_loss, 'test_ri@k': torch.tensor(ri_score),
                 'test_pu@k': torch.tensor(pu_score), 'test_nmi@k': torch.tensor(nmi_score),
                 'test_ri': torch.tensor(best_ri) , 'k': torch.tensor(k, dtype=torch.float)}
 
@@ -381,8 +427,8 @@ class SiameseHyperbolic(pl.LightningModule):
         avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
         avg_ri_k = torch.stack([x['test_ri@k'] for x in outputs]).mean()
         std_ri_k = torch.stack([x['test_ri@k'] for x in outputs]).std()
-        avg_acc_k = torch.stack([x['test_acc@k'] for x in outputs]).mean()
-        std_acc_k = torch.stack([x['test_acc@k'] for x in outputs]).std()
+        # avg_acc_k = torch.stack([x['test_acc@k'] for x in outputs]).mean()
+        # std_acc_k = torch.stack([x['test_acc@k'] for x in outputs]).std()
         avg_pu_k = torch.stack([x['test_pu@k'] for x in outputs]).mean()
         std_pu_k = torch.stack([x['test_pu@k'] for x in outputs]).std()
         avg_nmi_k = torch.stack([x['test_nmi@k'] for x in outputs]).mean()
@@ -394,7 +440,7 @@ class SiameseHyperbolic(pl.LightningModule):
 
 
         metrics = {'ari@k': avg_ri_k, 'ari@k-std': std_ri_k,
-                   'acc@k': avg_acc_k, 'acc@k-std': std_acc_k,
+                   # 'acc@k': avg_acc_k, 'acc@k-std': std_acc_k,
                    'purity@k': avg_pu_k, 'purity@k-std': std_pu_k,
                    'nmi@k': avg_nmi_k, 'nmi@k-std': std_nmi_k,
                    'ari': avg_ri, 'ari-std': std_ri,
@@ -405,6 +451,6 @@ class SiameseHyperbolic(pl.LightningModule):
         return {'test_loss': avg_loss,
                 'test_ri': avg_ri,
                 'ari@k': avg_ri_k, 'ari@k-std': std_ri_k,
-                'acc@k': avg_acc_k, 'acc@k-std': std_acc_k,
+                # 'acc@k': avg_acc_k, 'acc@k-std': std_acc_k,
                 'purity@k':avg_pu_k, 'purity@k-std': std_pu_k,
                 'nmi@k': avg_nmi_k, 'nmi@k-std': std_nmi_k}
