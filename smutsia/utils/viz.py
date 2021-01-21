@@ -11,7 +11,7 @@ from scipy.cluster.hierarchy import dendrogram, fcluster, set_link_color_palette
 from sklearn.metrics.cluster import adjusted_rand_score as ri
 from scipy.sparse import find
 
-COLORS  = np.array(['#377eb8', '#ff7f00', '#4daf4a', '#a65628', '#f781bf', '#984ea3', '#999999', '#e41a1c', '#dede00'])
+COLORS  = np.array(['#377eb8', '#ff7f00', '#4daf4a', '#a65628', '#f781bf', '#984ea3', '#999999', '#e41a1c', '#000000', '#dede00', '#116881', '#101a79', '#da55ba', '#5ac18e'])
 
 
 def plot_cloud(xyz,
@@ -193,17 +193,18 @@ def lighten_color(color_list, amount=0.25):
     return out
 
 
-def plot_clustering(X, y, idx=None):
+def plot_clustering(X, y, idx=None, eps=1e-1):
     ec = COLORS[y % len(COLORS)]
     plt.scatter(X[:, 0], X[:, 1], s=15, linewidths=1.5, c=lighten_color(ec), edgecolors=ec, alpha=0.9)
     # plt.axis([X[:,0].min(), X[:,0].max(), X[:,1].min(), X[:,1].max()])
-    plt.xticks(())
-    plt.yticks(())
+    # plt.xticks(())
+    # plt.yticks(())
     if idx is not None:
         iec = COLORS[y[idx] % len(COLORS)]
         plt.scatter(X[idx, 0], X[idx, 1], s=30, color=iec, marker='s', edgecolors='k')
-    plt.xlim(X[:, 0].min(), X[:, 0].max())
-    plt.ylim(X[:, 1].min(), X[:, 1].max())
+
+    plt.xlim(X[:, 0].min() - eps, X[:, 0].max() + eps)
+    plt.ylim(X[:, 1].min() - eps, X[:, 1].max() + eps)
 
 
 def plot_dendrogram(linkage_matrix, n_clusters=0, lastp=30):
@@ -249,7 +250,7 @@ def plot_graph(x, edge_index, edge_col):
     ax.scatter(xout[:, 0], xout[:, 1], s=20, c='w', edgecolors='k')
 
 
-def plot_hyperbolic_eval(x, y, emb, linkage_matrix, emb_scale, y_pred=None, k=-1, show=True):
+def plot_hyperbolic_eval(x, y, labels, emb, linkage_matrix, emb_scale, y_pred=None, k=-1, show=True):
     """
     Auxiliary functions to plot results about hyperbolic clustering
     """
@@ -274,7 +275,7 @@ def plot_hyperbolic_eval(x, y, emb, linkage_matrix, emb_scale, y_pred=None, k=-1
     idx = 1
     fig = plt.figure(figsize=(5 * n_plots, 5))
     ax = plt.subplot(1, n_plots, idx)
-    plot_clustering(x, y)
+    plot_clustering(x, y, idx=labels)
     ax.set_title('Ground Truth')
     idx += 1
     ax = plt.subplot(1, n_plots, idx)
@@ -443,3 +444,141 @@ def plot_precision_recall_curve(prec_scores, recall_scores, figsize=(12, 12),
     plt.tight_layout()
     if len(savefig):
         plt.savefig(savefig, dpi=90)
+
+
+def eval_noise(model, sample_gen, figname='', seed=0):
+    import torch
+    from smutsia.utils.scores import get_optimal_k
+    # generating a sample and evaluating model
+    n_samples = 200
+    plt.figure(figsize=(30, 30))
+    n = 1
+    noises = np.linspace(0, 0.16, 5)
+    np.random.seed(seed)
+    random_states = np.random.randint(0, 2048, 5)
+    for noise, state in zip(noises, random_states):
+        x, y = sample_gen(n_samples=n_samples, noise=noise,
+                              random_state=state)
+        # move to torch
+        x = torch.from_numpy(x).type(torch.float)
+        y = torch.from_numpy(y)
+
+        # get the prediction
+        x_emb, loss_triplet, loss_hyhc, Z = model(x, y, decode=True)
+        y_pred, num_cluster, ri_score = get_optimal_k(y, Z[0])
+        # plot the results
+        # plt.figure(figsize=(6, 6))
+        print(f"Loss Triplet {loss_triplet}; Loss HYPHC {loss_hyhc}")
+        print(f"Best num_cluster {num_cluster}; RI Score {ri_score}")
+        plt.subplot(len(noises), 5, n)
+        n += 1
+        plot_clustering(x, y)
+        plt.title(f"Ground Truth. Noise {noise:.2f}")
+        plt.subplot(len(noises), 5, n)
+        n += 1
+        max_val = torch.abs(x_emb).max().item()
+        plot_clustering(x_emb.detach(), y)
+        plt.xlim(-max_val - 1e-1, max_val + 1e-1)
+        plt.ylim(-max_val - 1e-1, max_val + 1e-1)
+        plt.title("Embedding w/out rescaling")
+        plt.subplot(len(noises), 5, n)
+        n += 1
+        plot_clustering(model._rescale_emb(x_emb).detach(), y_pred)
+        plt.title(f"Embedding w Rescaling. {num_cluster} Clusters")
+        plt.xlim(-1.1, 1.1)
+        plt.ylim(-1.1, 1.1)
+        plt.subplot(len(noises), 5, n)
+        n += 1
+        plot_clustering(x, y_pred)
+        plt.title(f"Prediction. RI Score {ri_score:.2f}")
+        plt.subplot(len(noises), 5, n)
+        n += 1
+        plot_dendrogram(Z[0], n_clusters=num_cluster)
+        plt.title(f'Dendrogram {num_cluster}-clusters')
+    plt.tight_layout()
+    if len(figname):
+        plt.savefig(figname, dpi=300)
+    else:
+        plt.show()
+
+
+def get_linkage(model, **kwargs):
+    # Create linkage matrix and then plot the dendrogram
+
+    # create the counts of samples under each node
+    counts = np.zeros(model.children_.shape[0])
+    n_samples = len(model.labels_)
+    for i, merge in enumerate(model.children_):
+        current_count = 0
+        for child_idx in merge:
+            if child_idx < n_samples:
+                current_count += 1  # leaf node
+            else:
+                current_count += counts[child_idx - n_samples]
+        counts[i] = current_count
+
+    linkage_matrix = np.column_stack([model.children_, model.distances_,
+                                      counts]).astype(float)
+    return [linkage_matrix]
+
+
+def noise_robustness(model, name, length=20, max_samples=300, seed=0, filename=''):
+    from smutsia.nn.models._siamese_network import SiameseHyperbolic
+    from smutsia.utils.scores import get_optimal_k, eval_clustering
+    from smutsia.utils.data import ToyDatasets
+    # generating a sample and evaluating model
+    noises = np.linspace(0, 0.16, 17)
+    ri_scores_at_k = np.zeros_like(noises)
+    acc_scores_at_k = np.zeros_like(noises)
+    nmi_scores_at_k = np.zeros_like(noises)
+    best_ri_scores = np.zeros_like(noises)
+
+    ri_scores_at_k_std = np.zeros_like(noises)
+    acc_scores_at_k_std = np.zeros_like(noises)
+    nmi_scores_at_k_std = np.zeros_like(noises)
+    best_ri_scores_std = np.zeros_like(noises)
+    for m, noise in enumerate(noises):
+        dataset = ToyDatasets(name=name, length=length, noise=noise, cluster_std=noise,
+                              max_samples=max_samples, num_labels=0.3, seed=seed, num_blobs=9)
+        ri_scores_n = np.zeros(length)
+        acc_scores_n = np.zeros(length)
+        nmi_scores_n = np.zeros(length)
+        best_ri_scores_n = np.zeros(length)
+        for n, data in enumerate(dataset):
+            if isinstance(model, SiameseHyperbolic):
+                x_emb, loss_triplet, loss_hyhc, Z = model(data.x, data.y, decode=True)
+            else:
+                mod = model.fit(data.x)
+                Z = get_linkage(mod, truncate_mode='level', p=3)
+            y_pred, num_cluster, ri_score = get_optimal_k(data.y.detach().numpy(), Z[0])
+            #             acc_score, pu_score, nmi_score, ri_at_k = eval_clustering(data.y.detach().numpy(), Z[0])
+            pu_score, nmi_score, ri_at_k = eval_clustering(data.y.detach().numpy(), Z[0])
+
+            best_ri_scores_n[n] = ri_score
+            ri_scores_n[n] = ri_at_k
+            acc_scores_n[n] = pu_score
+            nmi_scores_n[n] = nmi_score
+
+        ri_scores_at_k[m] = ri_scores_n.mean()
+        acc_scores_at_k[m] = acc_scores_n.mean()
+        nmi_scores_at_k[m] = nmi_scores_n.mean()
+        best_ri_scores[m] = best_ri_scores_n.mean()
+
+        ri_scores_at_k_std[m] = ri_scores_n.std()
+        acc_scores_at_k_std[m] = acc_scores_n.std()
+        nmi_scores_at_k_std[m] = nmi_scores_n.std()
+        best_ri_scores_std[m] = best_ri_scores_n.std()
+
+    if filename:
+        data = {'noises': noises,
+                'ri_scores_at_k': ri_scores_at_k,
+                'acc_scores_at_k': acc_scores_at_k,
+                'nmi_scores_at_k': nmi_scores_at_k,
+                'best_ri_scores': best_ri_scores,
+                'ri_scores_at_k_std': ri_scores_at_k_std,
+                'acc_scores_at_k_std': acc_scores_at_k_std,
+                'nmi_scores_at_k_std': nmi_scores_at_k_std,
+                'best_ri_scores_std': best_ri_scores_std}
+        np.savez(filename, **data)
+
+    return noises, ri_scores_at_k, acc_scores_at_k, nmi_scores_at_k, best_ri_scores, ri_scores_at_k_std, acc_scores_at_k_std, nmi_scores_at_k_std, best_ri_scores_std
