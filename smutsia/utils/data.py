@@ -7,14 +7,17 @@ from smutsia.utils.arrays import cartesian_product
 
 c = np.arange(-1, 2)
 CENTERS = cartesian_product([c,c])
+# nozero = np.logical_not(np.logical_and(CENTERS[:, 0] == 0, CENTERS[:, 1] ==0))
+# CENTERS = CENTERS[nozero]
+NUM_CENTERS = len(CENTERS)
 np.random.seed(1)
-ANISOTROPICS = np.zeros((9, 2, 2))
-eigs = 2 * np.random.rand(9, 2) - 1
+ANISOTROPICS = np.zeros((NUM_CENTERS, 2, 2))
+eigs = 2 * np.random.rand(NUM_CENTERS, 2) - 1
 np.random.seed(1)
-alphas = np.random.rand(9)
-CLUSTERS_STD = (1-alphas)*0.05 + (alphas)*0.16
+alphas = np.random.rand(NUM_CENTERS)
+CLUSTERS_STD = (1-alphas)*0.01 + (alphas)*0.30
 
-for i in range(9):
+for i in range(NUM_CENTERS):
     ANISOTROPICS[i, 0, 0] = eigs[i, 0]
     ANISOTROPICS[i, 1, 1] = eigs[i, 1]
 
@@ -48,7 +51,7 @@ def sample_circles(n_samples: int, noise: float,
 
 def sample_blobs(n_samples: int, cluster_std: float, num_blobs: int = 3, random_state: Union[int, None] = None):
 
-    idx_centers = np.random.choice(np.arange(len(CENTERS)), num_blobs, replace=False)
+    idx_centers = np.random.choice(np.arange(NUM_CENTERS), num_blobs, replace=False)
     centers = CENTERS[idx_centers]
 
     x, y = make_blobs(n_samples, centers=centers, cluster_std=cluster_std, random_state=random_state)
