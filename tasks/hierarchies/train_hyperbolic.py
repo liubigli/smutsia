@@ -4,9 +4,11 @@ import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from torch_geometric.data import DataLoader
+from torch_geometric.data import DataLoader, DataListLoader
+from torch.utils.data import DistributedSampler
+
 from torch_geometric import transforms as T
-from smutsia.nn.models._siamese_network import SiameseHyperbolic, FeatureExtraction
+from smutsia.nn.models._siamese_network import SiameseHyperbolic, FeatureExtraction, ComplexFeatExtract
 from smutsia.nn import MLP
 from smutsia.utils.data import ToyDatasets
 
@@ -60,7 +62,11 @@ if __name__ == "__main__":
     parser.add_argument('--lr', default=1e-3, type=float, help='learning rate')
     parser.add_argument('--patience', default=50, type=int, help='patience value for early stopping')
     parser.add_argument('--plot', default=-1, type=int, help='interval in which we plot prediction on validation batch')
-    parser.add_argument('--gpu', default=-1, type=int, help='use gpu')
+    parser.add_argument('--gpu', default="", type=str, help='use gpu')
+    parser.add_argument('--distributed', help='if True run on a cluster machine', action='store_true')
+    parser.add_argument('--num_workers', type=int, default=4)
+
+
     args = parser.parse_args()
 
     logdir = args.logdir
@@ -91,7 +97,25 @@ if __name__ == "__main__":
     lr = args.lr
     patience = args.patience
     plot_every = args.plot
-    gpu = 0 if args.gpu == -1 else [args.gpu]
+    distr = args.distributed
+    num_workers = args.num_workers
+
+    if len(args.gpu):
+        gpu = [int(g) for g in args.gpu.split(',')]
+    else:
+        gpu = 0
+    print("Distributed: ", distr)
+    print("Gpu: ", gpu)
+
+    # training with multiple gpu-s
+    if isinstance(gpu, list) and len(gpu) > 1:
+        # check if training on a cluster or not
+        distributed_backend = 'ddp' if distr else 'dp'
+        replace_sampler_ddp = False if distr else True
+    else:
+        distributed_backend = None
+        replace_sampler_ddp = True
+
 
     # load dataset
     noise = (min_noise, max_noise)
@@ -108,19 +132,19 @@ if __name__ == "__main__":
     test_dataset = ToyDatasets(name=dataname, length=test_samples, noise=noise, cluster_std=cluster_std,
                                max_samples=max_points, num_labels=num_labels, seed=test_seed, num_blobs=num_blobs)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch, shuffle=False, num_workers=8)
-    valid_loader = DataLoader(valid_dataset, batch_size=1, shuffle=False, num_workers=8)
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=8)
-
     out_features = hidden if embedder else 2
     # todo parametrize this
     if model_name == 'dgcnn':
         nn = FeatureExtraction(in_channels=2, hidden_features=hidden, out_features=out_features, k=k, transformer=False,
                                dropout=dropout, negative_slope=negative_slope, cosine=cosine)
+    elif model_name == 'complex':
+        nn = ComplexFeatExtract(in_channels=2, hidden_features=hidden, dropout=dropout, negative_slope=negative_slope)
     else:
-        nn = MLP([2, hidden, hidden, out_features], dropout=dropout, negative_slope=negative_slope)
+        nn = MLP([2, hidden, hidden, hidden, hidden, out_features], dropout=dropout, negative_slope=negative_slope)
 
-    nn_emb = MLP([hidden, hidden, 2], dropout=dropout, negative_slope=negative_slope) if embedder else None
+    nn_emb = ComplexFeatExtract(in_channels=hidden, hidden_features=hidden, dropout=dropout, negative_slope=negative_slope) if embedder else None
+
+    # nn_emb = MLP([hidden, hidden, 2], dropout=dropout, negative_slope=negative_slope) if embedder else None
 
     model = SiameseHyperbolic(nn=nn,
                               embedder=nn_emb,
@@ -179,10 +203,33 @@ if __name__ == "__main__":
                          checkpoint_callback=checkpoint_callback,
                          early_stop_callback=early_stop_callback,
                          logger=logger,
-                         track_grad_norm=2)
+                         track_grad_norm=2,
+                         distributed_backend=distributed_backend,
+                         replace_sampler_ddp=replace_sampler_ddp)
+
+    # training with multiple gpu-s
+    if isinstance(gpu, list) and len(gpu) > 1:
+        num_replicas = len(gpu)
+        train_sampler = DistributedSampler(train_dataset,
+                                           num_replicas=num_replicas, rank=trainer.global_rank) if distr else None
+
+        valid_sampler = DistributedSampler(valid_dataset,
+                                           num_replicas=num_replicas, rank=trainer.global_rank) if distr else None
+
+        train_loader = DataListLoader(train_dataset,
+                                      batch_size=batch, num_workers=num_workers, sampler=train_sampler)
+
+        valid_loader = DataListLoader(valid_dataset,
+                                      batch_size=1, num_workers=num_workers, sampler=valid_sampler)
+    else:
+        train_loader = DataLoader(train_dataset, batch_size=batch, num_workers=num_workers)
+        valid_loader = DataLoader(valid_dataset, batch_size=1, num_workers=num_workers)
+
 
     trainer.fit(model, train_loader, valid_loader)
 
     print("End Training")
+
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=num_workers)
 
     results = trainer.test(model, test_loader)
