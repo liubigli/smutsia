@@ -9,10 +9,13 @@ __all__ = [
     'DGCNN',
     'DilateDGNN',
     'ErodeDGNN',
-    'MorphoGradDGNN'
+    'MorphoGradDGNN',
+    'UNet'
+
 ]
 
 from ._point_net import TransformNet, TNet
 from ._lightning_models import LitDGNN
 from ._dgcnn import DGCNN
 from ._morpho_models import DilateDGNN, ErodeDGNN, MorphoGradDGNN
+from .u_net import UNet
