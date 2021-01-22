@@ -48,7 +48,7 @@ def load_model(path, eval_mode=True):
                                negative_slope=hparams['negative_slope'],
                                cosine=hparams['cosine'] == 'True')
     else:
-        nn = MLP([2, hidden, hidden, out_features], dropout=dropout, negative_slope=negative_slope)
+        nn = MLP([2, hidden, hidden, hidden, hidden, out_features], dropout=dropout, negative_slope=negative_slope)
 
     nn_emb = MLP([hidden, hidden, 2], dropout=dropout, negative_slope=negative_slope) if embedder else None
 
