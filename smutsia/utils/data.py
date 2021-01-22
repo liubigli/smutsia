@@ -23,17 +23,18 @@ for i in range(NUM_CENTERS):
 
 
 def get_label_idx(y: np.ndarray, label_quantity: Union[int, float]):
-    num_classes = np.unique(y).size
+    classes = np.unique(y)
+    num_classes = len(classes)
     label_idx = []
     idx = np.arange(y.size)
-    for i in range(num_classes):
+    for i, c in enumerate(classes):
         if type(label_quantity) == float:
             num_labels = np.round(len(y) * label_quantity * (1 / num_classes)).astype(int)
-            label_idx.append(np.random.choice(idx[y==i], num_labels, replace=False))
+            label_idx.append(np.random.choice(idx[y==c], num_labels, replace=False))
 
         elif type(label_quantity) == int:
             num_labels = label_quantity // num_classes
-            label_idx.append(np.random.choice(idx[y==i], num_labels, replace=False))
+            label_idx.append(np.random.choice(idx[y==c], num_labels, replace=False))
 
         else:
             raise TypeError("label_quantity must be an int or a float")
@@ -55,7 +56,7 @@ def sample_blobs(n_samples: int, cluster_std: float, num_blobs: int = 3, random_
     centers = CENTERS[idx_centers]
 
     x, y = make_blobs(n_samples, centers=centers, cluster_std=cluster_std, random_state=random_state)
-    return x, y, idx_centers[y]
+    return x, idx_centers[y]
 
 
 def sample_varied(n_samples: int, cluster_std: float = 0.0, num_blobs: int = 3, random_state: Union[int, None] = None):
@@ -66,26 +67,26 @@ def sample_varied(n_samples: int, cluster_std: float = 0.0, num_blobs: int = 3, 
     centers = CENTERS[idx_centers]
 
     x, y = make_blobs(n_samples, centers=centers, cluster_std=cluster_std, random_state=random_state)
-    return x, y, idx_centers[y]
+    return x, idx_centers[y]
 
 
 def sample_aniso(n_samples: int, cluster_std: float, num_blobs: int = 3, anisotropic_transf: Union[List, None] = None,
                  random_state: Union[int, None] = None):
 
-    x, y, idx_centers = sample_blobs(n_samples, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
+    x, y = sample_blobs(n_samples, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
     if anisotropic_transf is None:
         anisotropic_transf = [[0.6, -0.6], [-0.4, 0.8]]
         # centers = np.unique(idx_centers)
         # for c in centers:
         #     x[idx_centers==c] = np.dot(x[idx_centers==c] - x[idx_centers==c].mean(), ANISOTROPICS[c]) + x[idx_centers==c]
     # else:
-    centers = np.unique(idx_centers)
+    centers = np.unique(y)
     for c in centers:
-        x[idx_centers==c] = np.dot(x[idx_centers==c] - x[idx_centers==c].mean(), anisotropic_transf) + x[idx_centers==c]
+        x[y==c] = np.dot(x[y==c] - x[y==c].mean(), anisotropic_transf) + x[y==c]
 
     x = np.dot(x, anisotropic_transf)
 
-    return x, y, idx_centers
+    return x, y
 
 
 def sample_moons(n_samples: int, noise: float, shift_x: float = 2.0, shift_y: float = 2.0,
@@ -165,7 +166,6 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
 
         random_state = np.random.randint(1024) if seeds is None else seeds[n]
 
-        idx_centers = None
         # draw a sample according to the dataset name
         if name == 'circles':
             x, y = sample_circles(num_points, sample_noise, random_state=random_state)
@@ -173,11 +173,11 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
             # we halve samples before passing because the points are copied inside the function
             x, y = sample_moons(num_points // 2, sample_noise, random_state=random_state)
         elif name == 'blobs':
-            x, y, idx_centers = sample_blobs(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
+            x, y = sample_blobs(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
         elif name == 'varied':
-            x, y, idx_centers = sample_varied(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
+            x, y= sample_varied(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
         elif name == 'aniso':
-            x, y, idx_centers = sample_aniso(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
+            x, y = sample_aniso(num_points, cluster_std=cluster_std, num_blobs=num_blobs, random_state=random_state)
         else:
             raise KeyError(f"Dataset name {name} not known. "
                            f"Possible choices are 'circles', 'moons', 'blobs', 'varied', 'aniso'")
@@ -186,10 +186,9 @@ def generate_dataset(name: str, total_samples: int, max_points: int, noise: Unio
         x, y, lab_idx = torch.Tensor(x), torch.from_numpy(y), torch.from_numpy(lab_idx)
         labels = torch.zeros_like(y, dtype=torch.bool)
         labels[lab_idx] = True
-        if idx_centers is not None:
-            data.append(Data(x=x, y=y, labels=labels, idx_centers=idx_centers))
-        else:
-            data.append(Data(x=x, y=y, labels=labels))
+        data.append(Data(x=x, y=y, labels=labels))
+
+
 
     return data
 
