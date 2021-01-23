@@ -169,7 +169,7 @@ if __name__ == "__main__":
     from glob import glob
     from smutsia.utils.semantickitti import load_pyntcloud
     from smutsia.utils.viz import plot_cloud
-    from smutsia.deep_learning.models.u_net import UNet
+    from smutsia.nn.models import UNet
     from definitions import SEMANTICKITTI_PATH
 
     weights = '/home/leonardo/Dev/github/smutsia/ckpt/ground_detection/unet_best.pth'
@@ -190,5 +190,5 @@ if __name__ == "__main__":
 
     out = cnn_detect_ground(pc, net, layers_proj, img_means=par_img_means, img_std=par_img_std, add_normals=False,
                             savedir='.')
-    plot_cloud(pc.xyz, scalars=out, notebook=False)
+    plot_cloud(pc.xyz, scalars=out, notebook=False, interact=True)
     print("END")
