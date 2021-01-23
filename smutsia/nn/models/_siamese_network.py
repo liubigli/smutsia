@@ -25,10 +25,10 @@ from . import TransformNet
 from .. import MLP
 
 
-class ComplexFeatExtract(torch.nn.Module):
+class EulerFeatExtract(torch.nn.Module):
     def __init__(self, in_channels: int, hidden_features: int, negative_slope: float = 0.2, bias: bool = True,
                  dropout: float = 0.0, init_gamma: float = math.pi / 2):
-        super(ComplexFeatExtract, self).__init__()
+        super(EulerFeatExtract, self).__init__()
 
         self.gamma = torch.nn.Parameter(torch.Tensor([init_gamma]), requires_grad=True)
 
@@ -99,7 +99,7 @@ class FeatureExtraction(torch.nn.Module):
         return x
 
 
-class SiameseHyperbolic(pl.LightningModule):
+class SimilarityHypHC(pl.LightningModule):
     """
 
     Parameters
@@ -146,7 +146,7 @@ class SiameseHyperbolic(pl.LightningModule):
                  margin: float = 1.0, init_rescale: float = 1e-3, max_scale: float = 1.-1e-3, lr: float = 1e-3,
                  patience: int = 10, factor: float = 0.5, min_lr: float = 1e-4,
                  plot_every: int = -1):
-        super(SiameseHyperbolic, self).__init__()
+        super(SimilarityHypHC, self).__init__()
         self.model = nn
         self.embedder = embedder
         self.rescale = torch.nn.Parameter(torch.Tensor([init_rescale]), requires_grad=True)
@@ -458,7 +458,7 @@ class SiameseHyperbolic(pl.LightningModule):
 class HyperbolicSeg(pl.LightningModule):
     def __init__(self, k: int, hidden_feat: int, num_classes: int, transform: bool = False, aggr='max',
                  dropout=0.3, negative_slope=0.2,
-                 sim_distance: str = 'cosine', t_per_anchor=100, label_ratio=0.03,
+                 sim_distance: str = 'cosine', t_per_anchor=100, label_ratio=0.3,
                  temperature: float = 0.05, margin: float = 1.0, init_rescale: float = 1e-3,
                  max_scale: float = 1.-1e-3, lr: float = 1e-3, patience: int = 10,
                  factor: float = 0.5, min_lr: float = 1e-4, weight_decay=1e-4):
@@ -564,7 +564,10 @@ class HyperbolicSeg(pl.LightningModule):
         anchor_idx, positive_idx, negative_idx = indices_tuple
         # print("Len Anchor: ", len(anchor_idx))
         if len(anchor_idx) == 0:
-            return self.zero_losses()
+            loss_triplet_sim = self.loss_triplet_sim(x_feat_samples, y_samples)
+            loss_triplet_lca = torch.tensor([0.0], device=loss_triplet_sim.device)
+            # raise ValueError("Anchor idx is empty ")
+            return loss_triplet_lca, loss_triplet_sim
         # #
         if isinstance(self.distace_sim, distances.CosineSimilarity):
             mat_sim = 0.5 * (1 + self.distace_sim(x_feat_samples))
@@ -640,7 +643,19 @@ class HyperbolicSeg(pl.LightningModule):
         x = data.pos
         batch = data.batch
         if compute_hier_loss:
-            labels = torch.rand_like(x[:,0]) <= self.label_ratio
+            classes = torch.unique(y)
+            labels = torch.zeros(x.size(0), dtype=torch.bool)
+            for c in classes:
+                # picking at least one label per class
+                p = torch.zeros(x.size(0))
+                p[y==c] = 1
+                num_labels = max(int(p.sum() * self.label_ratio), 1)
+                idx = p.multinomial(num_samples=num_labels, replacement=False)
+                labels[idx] = True
+
+            labels = labels.to(x.device)
+
+            # labels = torch.rand_like(x[:,0]) <= self.label_ratio
             x_emb, loss_triplet, loss_hyphc = self(x=x, y=y, batch=batch, labels=labels)
 
             return x_emb, loss_triplet, loss_hyphc
@@ -656,7 +671,7 @@ class HyperbolicSeg(pl.LightningModule):
 
     def training_step(self, data, batch_idx, optimizer_idx):
         # manual
-        (opt_adam, opt_radam) = self.optimizers(use_pl_optimizer=False)
+        (opt_adam, opt_radam) = self.optimizers()
 
         loss, acc_score, iou_score = self.step(data, compute_hier_loss=False)
 
@@ -686,7 +701,7 @@ class HyperbolicSeg(pl.LightningModule):
         opt_radam.step()
         opt_radam.zero_grad()
 
-        return {'loss': loss, 'loss_triplet': loss_triplet, 'loss_hyphc': loss_hyphc, 'acc': acc_score, 'iou': iou_score}
+        # return {'loss': loss, 'loss_triplet': loss_triplet, 'loss_hyphc': loss_hyphc, 'acc': acc_score, 'iou': iou_score}
 
 
     def training_epoch_end(self, outputs):
@@ -702,15 +717,14 @@ class HyperbolicSeg(pl.LightningModule):
 
         val_loss, val_acc_score, val_iou_score = self.step(data, compute_hier_loss=False)
         x_emb, val_loss_triplet, val_loss_hyphc = self.step(data, compute_hier_loss=True)
-
         self.log('val_loss', val_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log('val_loss_triplet', val_loss_triplet, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log('val_loss_hyphc', val_loss_hyphc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log('val_acc', val_acc_score, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log('val_iou', val_iou_score, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
-        return {'val_loss': val_loss, 'val_loss_triplet': val_loss_triplet, 'val_loss_hyphc': val_loss_hyphc,
-                'val_acc': val_acc_score, 'val_iou': val_iou_score}
+        # return {'val_loss': val_loss, 'val_loss_triplet': val_loss_triplet, 'val_loss_hyphc': val_loss_hyphc,
+        #         'val_acc': val_acc_score, 'val_iou': val_iou_score}
 
     def validation_epoch_end(self, outputs):
         self.epoch_end(outputs)
@@ -725,8 +739,8 @@ class HyperbolicSeg(pl.LightningModule):
         self.log('test_acc', test_acc_score, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         self.log('test_iou', test_iou_score, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
-        return {'test_loss': test_loss,
-                'test_acc': test_acc_score, 'test_iou': test_iou_score}
+        # return {'test_loss': test_loss,
+        #         'test_acc': test_acc_score, 'test_iou': test_iou_score}
 
     def test_epoch_end(self, outputs):
         self.epoch_end(outputs)
