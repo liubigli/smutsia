@@ -1,30 +1,11 @@
 import numpy as np
-import pandas as pd
 from pyntcloud import PyntCloud
 from scipy.sparse import find, csr_matrix
+from smutsia.point_cloud import get_sub_cloud
 from smutsia.point_cloud.normals import get_normals
 from smutsia.morphology.segmentation import quasi_flat_zones, z_nz_dist
 from smutsia.utils import subset_backprojection
 from smutsia.graph import cloud_knn_graph, cloud_spherical_graph, merge_graphs
-
-
-def get_sub_cloud(xyz, subset):
-    """
-    Utils function that return sub point cloud
-    Parameters
-    ----------
-    xyz: ndarray
-        input point cloud
-
-    subset: ndarray
-        boolean array defining subset
-
-    Returns
-    -------
-    sub_cloud: PyntCloud
-        point_cloud made of points in subset
-    """
-    return PyntCloud(pd.DataFrame(xyz[subset], columns=['x', 'y', 'z']))
 
 
 def is_comparable(xyz, cc1, cc2, max_dist=0.15, max_it=100, inter_perc=0.5):
@@ -143,7 +124,7 @@ def hybrid_ground_detection(cloud,
         number of nearest neighbors to connect
 
     nb_layers: int
-        number of layers of the scanner
+        number of conv of the scanner
 
     res_yaw: int
         horizontal resolution of the spherical image
@@ -176,6 +157,11 @@ def hybrid_ground_detection(cloud,
     # estimate normals
     normals = get_normals(cloud, method=method_normals, k=knn_normal)
 
+    k_neighbors = cloud.get_neighbors(k=knn_normal)
+    eigenvalues = cloud.add_scalar_field("eigen_values", k_neighbors=k_neighbors)
+    ev = cloud.points[eigenvalues].values
+    nev = np.divide(ev, ev.sum(axis=1).reshape(-1, 1))
+    eigntropy = -(1 - nev[:, 2]) * np.log(1 - nev[:, 2]) - nev[:, 2] * np.log(nev[:, 2])
     src, dst, _ = find(graph)
     # weight of the 3D graph are defined by z_nz_dist
     weights = z_nz_dist(cloud.xyz, normals, src, dst)
