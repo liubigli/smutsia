@@ -8,7 +8,7 @@ from torch_geometric.data import DataLoader, DataListLoader
 from torch.utils.data import DistributedSampler
 
 from torch_geometric import transforms as T
-from smutsia.nn.models._siamese_network import SiameseHyperbolic, FeatureExtraction, ComplexFeatExtract
+from smutsia.nn.models._siamese_network import SimilarityHypHC, FeatureExtraction, EulerFeatExtract
 from smutsia.nn import MLP
 from smutsia.utils.data import ToyDatasets
 
@@ -137,23 +137,23 @@ if __name__ == "__main__":
     if model_name == 'dgcnn':
         nn = FeatureExtraction(in_channels=2, hidden_features=hidden, out_features=out_features, k=k, transformer=False,
                                dropout=dropout, negative_slope=negative_slope, cosine=cosine)
-    elif model_name == 'complex':
-        nn = ComplexFeatExtract(in_channels=2, hidden_features=hidden, dropout=dropout, negative_slope=negative_slope)
+    elif model_name == 'euler':
+        nn = EulerFeatExtract(in_channels=2, hidden_features=hidden, dropout=dropout, negative_slope=negative_slope)
     else:
         nn = MLP([2, hidden, hidden, hidden, hidden, out_features], dropout=dropout, negative_slope=negative_slope)
 
-    nn_emb = ComplexFeatExtract(in_channels=hidden, hidden_features=hidden, dropout=dropout, negative_slope=negative_slope) if embedder else None
+    nn_emb = EulerFeatExtract(in_channels=hidden, hidden_features=hidden, dropout=dropout, negative_slope=negative_slope) if embedder else None
 
     # nn_emb = MLP([hidden, hidden, 2], dropout=dropout, negative_slope=negative_slope) if embedder else None
 
-    model = SiameseHyperbolic(nn=nn,
-                              embedder=nn_emb,
-                              sim_distance=distance,
-                              margin=margin,
-                              temperature=temperature,
-                              anneal=annealing,
-                              anneal_step=anneal_step,
-                              plot_every=plot_every)
+    model = SimilarityHypHC(nn=nn,
+                            embedder=nn_emb,
+                            sim_distance=distance,
+                            margin=margin,
+                            temperature=temperature,
+                            anneal=annealing,
+                            anneal_step=anneal_step,
+                            plot_every=plot_every)
 
     logger = MyTensorBoardLogger(logdir, name=dataname)
     model_params = {'dataset': dataname,
