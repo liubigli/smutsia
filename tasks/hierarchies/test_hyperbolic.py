@@ -7,7 +7,7 @@ import pytorch_lightning as pl
 from torch_geometric.data import DataLoader
 
 from smutsia.nn import MLP
-from smutsia.nn.models._siamese_network import FeatureExtraction, SiameseHyperbolic
+from smutsia.nn.models._siamese_network import FeatureExtraction, SimilarityHypHC
 from smutsia.utils.data import ToyDatasets
 from smutsia.utils.logger import  MyTensorBoardLogger
 
@@ -52,13 +52,13 @@ def load_model(path, eval_mode=True):
 
     nn_emb = MLP([hidden, hidden, 2], dropout=dropout, negative_slope=negative_slope) if embedder else None
 
-    model = SiameseHyperbolic(nn=nn,
-                              embedder=nn_emb,
-                              temperature=hparams['temperature'],
-                              anneal=hparams['annealing'],
-                              anneal_step=hparams['anneal_step'],
-                              sim_distance=hparams['distance'],
-                              margin=hparams['margin'])
+    model = SimilarityHypHC(nn=nn,
+                            embedder=nn_emb,
+                            temperature=hparams['temperature'],
+                            anneal=hparams['annealing'],
+                            anneal_step=hparams['anneal_step'],
+                            sim_distance=hparams['distance'],
+                            margin=hparams['margin'])
 
     weights_path = glob(os.path.join(path, '*.ckpt'))[-1]
     model = load_weights(model, weights_path)
