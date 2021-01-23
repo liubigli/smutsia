@@ -9,21 +9,22 @@ from definitions import SEMANTICKITTI_PATH, SEMANTICKITTI_CONFIG
 from smutsia.utils import process_iterable, load_yaml, write_las
 from smutsia.utils.semantickitti import load_pyntcloud, SemanticKittiConfig
 from smutsia.point_cloud.projection import Projection
-from smutsia.deep_learning.models.u_net import UNet
+from smutsia.nn.models import UNet
 from smutsia.point_cloud.ground_detection import *
 from smutsia.utils.scores import compute_scores, get_confusion_matrix, condense_confusion_matrix
 from smutsia.utils.viz import plot_confusion_matrix, color_bool_labeling, plot_precision_recall_curve
 
 
-carLikeId = [10, 13, 18]
+carLikeId = [10, 13, 16, 18, 20]
 bikeLikeId = [11, 15, 31, 32]
 personId = [30]
 groundLikeId = [40, 44, 48, 49, 60, 72]
 buildId = [50]
-discard = [1, 16, 20, 51, 52, 70, 71, 80, 81, 99]
+objects = [51, 52, 80, 81, 99]
+# discard = [1, 16, 20, 51, 52, 70, 71, 80, 81, 99]
 movingLikeId = [252, 253, 254, 255, 256, 257, 258, 259]
-classes = ['other', 'vehicles', 'cycles', 'person', 'ground', 'building', 'moving-objects', 'discard']
-mySelect = [[0], carLikeId, bikeLikeId, personId, groundLikeId, buildId, movingLikeId, discard]
+classes = ['other', 'vehicles', 'cycles', 'person', 'ground', 'building', 'moving-objects', 'objects']
+mySelect = [[0, 1], carLikeId, bikeLikeId, personId, groundLikeId, buildId, movingLikeId, objects]
 selectedId = []
 condensedId = []
 for elem in mySelect:
